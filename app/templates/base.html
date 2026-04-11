@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=800, initial-scale=1, user-scalable=no">
+  <title>{% block title %}Coil Gun Sequencer{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <nav class="nav-bar">
+    <a href="/" class="nav-link {% block nav_ts %}{% endblock %}">Fire Control</a>
+    <a href="/config" class="nav-link {% block nav_cfg %}{% endblock %}">Configuration</a>
+    <span class="nav-status" id="conn-status">--</span>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
