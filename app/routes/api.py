@@ -1,6 +1,8 @@
 """REST API + SocketIO event emissions for the sequencer."""
 
+import glob
 import logging
+import os
 from collections import defaultdict
 
 from flask import Blueprint, jsonify, request
@@ -428,3 +430,59 @@ def analysis_overview():
         result.append(entry)
 
     return jsonify(result)
+
+
+# ── Skill results viewer ────────────────────────────────────────────────
+
+_RESULTS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "optimize_coil_gun_velocity_skill_results",
+)
+
+
+@api_bp.route("/skill-results")
+def list_skill_results():
+    """List available analysis result files, sorted newest first."""
+    if not os.path.isdir(_RESULTS_DIR):
+        return jsonify([])
+
+    files = []
+    for name in sorted(os.listdir(_RESULTS_DIR), reverse=True):
+        if name.startswith("analysis_") and name.endswith(".md"):
+            path = os.path.join(_RESULTS_DIR, name)
+            # Extract timestamp from filename: analysis_YYYY-MM-DD_HH-MM-SS.md
+            ts = name.replace("analysis_", "").replace(".md", "").replace("_", " ", 1)
+            files.append({
+                "filename": name,
+                "timestamp": ts,
+                "size": os.path.getsize(path),
+            })
+    return jsonify(files)
+
+
+@api_bp.route("/skill-results/file/<filename>")
+def get_skill_result(filename):
+    """Return the raw markdown content of a result file."""
+    # Sanitize: only allow filenames matching expected pattern
+    if not filename.endswith(".md") or "/" in filename or "\\" in filename:
+        return jsonify({"error": "Invalid filename"}), 400
+
+    path = os.path.join(_RESULTS_DIR, filename)
+    if not os.path.isfile(path):
+        return jsonify({"error": "File not found"}), 404
+
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return jsonify({"filename": filename, "content": content})
+
+
+@api_bp.route("/skill-results/history")
+def get_skill_history():
+    """Return the persistent optimization history file."""
+    path = os.path.join(_RESULTS_DIR, "velocity_optimization_history.md")
+    if not os.path.isfile(path):
+        return jsonify({"content": None})
+
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    return jsonify({"content": content})
