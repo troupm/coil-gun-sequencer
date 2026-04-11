@@ -4,6 +4,7 @@ import logging
 import uuid
 
 from flask import Flask
+from flask_socketio import SocketIO, emit
 
 from app.config import FlaskConfig, DEFAULTS
 from app.models import db, ConfigSnapshot
@@ -15,6 +16,7 @@ log = logging.getLogger(__name__)
 # Module-level singletons (initialised in create_app)
 sequencer: Sequencer = None  # type: ignore[assignment]
 publisher: StatePublisher = None  # type: ignore[assignment]
+socketio: SocketIO = SocketIO()
 
 
 def create_app() -> Flask:
@@ -28,17 +30,27 @@ def create_app() -> Flask:
     with app.app_context():
         db.create_all()
 
+    # SocketIO – threading mode is safe with our busy-wait timing threads.
+    # simple-websocket provides native WebSocket transport without eventlet.
+    socketio.init_app(app, async_mode="threading")
+
     # Hardware
     hw = create_hardware()
     hw.setup()
 
     # State publisher + Sequencer
     publisher = StatePublisher()
+    publisher.init_socketio(socketio)
     sequencer = Sequencer(hw, publisher)
 
     # Load most recent config (or use defaults)
     with app.app_context():
         _load_initial_config(sequencer)
+
+    # SocketIO connect handler — send initial state to newly connected client
+    @socketio.on("connect")
+    def _on_connect():
+        emit("state_update", sequencer.snapshot())
 
     # Register blueprints
     from app.routes.api import api_bp

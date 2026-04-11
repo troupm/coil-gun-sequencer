@@ -8,7 +8,10 @@
       "Bash(python -c ':*)",
       "Bash(bash -n setup_host_rpi.sh)",
       "Bash(taskkill //F //IM python.exe)",
-      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('State:', d['state']\\)\")"
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('State:', d['state']\\)\")",
+      "Bash(python -m pip install flask-socketio simple-websocket)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('State:', d['state'], '| SocketIO mode: OK'\\)\")",
+      "Bash(python -c \"import sys,json; print\\(json.load\\(sys.stdin\\)['run_number']\\)\")"
     ]
   }
 }

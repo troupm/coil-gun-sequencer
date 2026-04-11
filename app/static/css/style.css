@@ -405,3 +405,58 @@ body {
   color: var(--fg-dim);
   font-size: 0.9rem;
 }
+
+/* Config changes timeline */
+.an-cfg-changes {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  flex-shrink: 0;
+  border-left: 3px solid var(--yellow);
+}
+.an-cfg-changes h3 {
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.cfg-change-entry {
+  font-size: 0.78rem;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  line-height: 1.5;
+}
+.cfg-change-entry:last-child { border-bottom: none; }
+.cfg-run-badge {
+  display: inline-block;
+  background: var(--accent);
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.cfg-delta-item { margin-right: 10px; }
+.cfg-old { color: var(--red); text-decoration: line-through; opacity: 0.7; }
+.cfg-new { color: var(--green); font-weight: 600; }
+
+/* Config gear icon in table rows */
+.cfg-icon {
+  color: var(--yellow);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.an-table tr.has-delta td { border-bottom-color: var(--yellow); border-bottom-width: 1px; }
+
+/* Expandable delta detail row */
+.delta-row .delta-cell {
+  text-align: left;
+  font-size: 0.75rem;
+  color: var(--fg-dim);
+  padding: 4px 10px 6px 30px;
+  background: rgba(255, 214, 0, 0.04);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}

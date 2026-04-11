@@ -1,12 +1,9 @@
-"""REST API + SSE stream for the sequencer."""
+"""REST API + SocketIO event emissions for the sequencer."""
 
-import json
 import logging
-import queue
-import uuid
 from collections import defaultdict
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 
 from app.models import db, ConfigSnapshot, EventLog
@@ -24,36 +21,6 @@ def _seq():
 def _pub():
     from app import publisher
     return publisher
-
-
-# ── SSE stream ──────────────────────────────────────────────────────────
-
-@api_bp.route("/stream")
-def stream():
-    """Server-Sent Events endpoint.  Each connected client gets full state
-    snapshots pushed whenever the sequencer state changes."""
-    pub = _pub()
-    q = pub.subscribe()
-
-    def event_stream():
-        try:
-            # Send an initial snapshot immediately so the client doesn't
-            # have to wait for the next state change.
-            yield f"data: {json.dumps(_seq().snapshot())}\n\n"
-            while True:
-                try:
-                    data = q.get(timeout=15)
-                    yield f"data: {json.dumps(data)}\n\n"
-                except queue.Empty:
-                    # Keepalive comment to prevent proxy/browser timeout
-                    yield ": keepalive\n\n"
-        except GeneratorExit:
-            pub.unsubscribe(q)
-
-    resp = Response(event_stream(), mimetype="text/event-stream")
-    resp.headers["Cache-Control"] = "no-cache"
-    resp.headers["X-Accel-Buffering"] = "no"
-    return resp
 
 
 # ── State queries ───────────────────────────────────────────────────────
@@ -101,6 +68,15 @@ def save_run():
     db.session.commit()
 
     log.info(f"Saved run #{ev.run_number} (event_log id={ev.id})")
+
+    # Notify all clients (especially the Analysis page) that a run was saved
+    _pub().emit("run_saved", {
+        "run_sequence_id": run_data["run_sequence_id"],
+        "run_number": run_data["run_number"],
+        "event_log_id": ev.id,
+        "stats": run_data["stats"],
+    })
+
     return jsonify({"status": "saved", "event_log_id": ev.id, "stats": run_data["stats"]})
 
 
@@ -148,8 +124,12 @@ def update_config():
     seq.config_snapshot_id = snap.id
 
     log.info(f"Config updated → snapshot #{snap.id}")
-    # Push new state so both UI pages see the update
+    # Push new state so all UI pages see the update
     _pub().publish(seq.snapshot())
+    _pub().emit("config_updated", {
+        "snapshot_id": snap.id,
+        "run_sequence_id": seq.run_sequence_id,
+    })
     return jsonify({"status": "updated", "snapshot_id": snap.id})
 
 
@@ -162,6 +142,7 @@ def new_sequence():
     if seq.state.value != "ready":
         seq.save_run()
     new_id = seq.new_run_sequence()
+    _pub().emit("sequence_changed", {"run_sequence_id": new_id})
     return jsonify({"run_sequence_id": new_id})
 
 
@@ -331,6 +312,7 @@ def analysis_runs():
     # Build run records (ascending order for trend computation)
     runs = []
     prev_stats = {}
+    prev_cfg = None
     for ev in events:
         cfg = snaps.get(ev.config_snapshot_id, fallback)
         if cfg is None:
@@ -343,6 +325,15 @@ def analysis_runs():
         for vk in VELOCITY_KEYS:
             trends[vk] = _trend(stats.get(vk), prev_stats.get(vk))
 
+        # Config deltas vs previous run
+        config_deltas = {}
+        if prev_cfg is not None and cfg.id != prev_cfg.id:
+            for key in ConfigSnapshot.PARAM_KEYS:
+                curr_val = getattr(cfg, key)
+                prev_val = getattr(prev_cfg, key)
+                if curr_val != prev_val:
+                    config_deltas[key] = {"prev": prev_val, "curr": curr_val}
+
         runs.append({
             "id": ev.id,
             "run_number": ev.run_number,
@@ -350,8 +341,10 @@ def analysis_runs():
             **{k: stats.get(k) for k in TIMING_KEYS},
             **{k: stats.get(k) for k in VELOCITY_KEYS},
             "trends": trends,
+            "config_deltas": config_deltas,
         })
         prev_stats = stats
+        prev_cfg = cfg
 
     # Aggregates over the whole sequence
     summary = {}

@@ -1,5 +1,6 @@
 /**
- * Analysis page – sequence filter, summary cards, trend charts, log table.
+ * Analysis page – sequence filter, summary cards, trend charts, log table,
+ * config delta display, and SocketIO live updates.
  */
 
 (function () {
@@ -13,7 +14,6 @@
     'gate_2_to_gate_3_velocity_ms',
   ];
 
-  // Summary card IDs mapped to velocity keys
   const SUMMARY_MAP = {
     'gate_1_transit_velocity_ms':      { min: 'sum-g1t-min',  avg: 'sum-g1t-avg',  max: 'sum-g1t-max'  },
     'gate_2_transit_velocity_ms':      { min: 'sum-g2t-min',  avg: 'sum-g2t-avg',  max: 'sum-g2t-max'  },
@@ -22,7 +22,6 @@
     'gate_2_to_gate_3_velocity_ms':    { min: 'sum-g23f-min', avg: 'sum-g23f-avg', max: 'sum-g23f-max' },
   };
 
-  // Chart colours per velocity series
   const SERIES_COLORS = {
     'gate_1_transit_velocity_ms':   '#ff9100',
     'gate_2_transit_velocity_ms':   '#ffd600',
@@ -44,12 +43,29 @@
     level:     '<span class="trend-flat" title="Level">\u25C6</span>',
   };
 
+  // Human-readable parameter labels for config deltas
+  const PARAM_LABELS = {
+    'projectile_length_mm':        'Proj Length',
+    'projectile_mass_grams':       'Proj Mass',
+    'v_coil_floor':                'V Floor',
+    'v_coil_ceiling':              'V Ceiling',
+    'gate_1_coil_2_delay_us':      'G1\u2192C2 Delay',
+    'gate_2_coil_3_delay_us':      'G2\u2192C3 Delay',
+    'coil_1_pulse_duration_us':    'Coil 1 Pulse',
+    'coil_2_pulse_duration_us':    'Coil 2 Pulse',
+    'coil_3_pulse_duration_us':    'Coil 3 Pulse',
+    'gate_1_to_gate_2_distance_mm':'G1\u2192G2 Dist',
+    'gate_2_to_gate_3_distance_mm':'G2\u2192G3 Dist',
+  };
+
   // ── DOM refs ───────────────────────────────────────────────────────────
 
-  const seqSelect = document.getElementById('seq-select');
-  const seqInfo   = document.getElementById('seq-info');
-  const tbody     = document.getElementById('runs-tbody');
-  const emptyMsg  = document.getElementById('empty-msg');
+  const seqSelect  = document.getElementById('seq-select');
+  const seqInfo    = document.getElementById('seq-info');
+  const tbody      = document.getElementById('runs-tbody');
+  const emptyMsg   = document.getElementById('empty-msg');
+  const cfgPanel   = document.getElementById('cfg-changes');
+  const cfgTimeline= document.getElementById('cfg-timeline');
 
   // ── Chart instances ────────────────────────────────────────────────────
 
@@ -67,10 +83,36 @@
     else clearView();
   });
 
+  // ── SocketIO live updates ──────────────────────────────────────────────
+
+  onEvent('run_saved', (data) => {
+    // Refresh the run list if we're viewing the same sequence
+    const sel = seqSelect.value;
+    if (sel && sel === data.run_sequence_id) {
+      loadSequenceData(sel);
+    }
+    // Always refresh the sequence dropdown and overview chart
+    loadSequences(sel);
+    loadOverviewChart();
+  });
+
+  onEvent('config_updated', () => {
+    // Config change may affect velocity calculations — refresh
+    const sel = seqSelect.value;
+    if (sel) loadSequenceData(sel);
+  });
+
+  onEvent('sequence_changed', () => {
+    const sel = seqSelect.value;
+    loadSequences(sel);
+    loadOverviewChart();
+  });
+
   // ── Load sequence list ─────────────────────────────────────────────────
 
-  async function loadSequences() {
+  async function loadSequences(preserveSelection) {
     const data = await apiGet('/sequences');
+    const prevVal = preserveSelection || seqSelect.value;
     seqSelect.innerHTML = '<option value="">-- select sequence --</option>';
     data.forEach(s => {
       const opt = document.createElement('option');
@@ -80,8 +122,10 @@
         ' (' + s.run_count + ' runs, ' + dateStr + ')';
       seqSelect.appendChild(opt);
     });
-    // Auto-select first sequence if available
-    if (data.length > 0) {
+    // Restore previous selection, or auto-select first
+    if (prevVal && [...seqSelect.options].some(o => o.value === prevVal)) {
+      seqSelect.value = prevVal;
+    } else if (data.length > 0) {
       seqSelect.value = data[0].run_sequence_id;
       loadSequenceData(data[0].run_sequence_id);
     }
@@ -99,6 +143,7 @@
     updateSummaryCards(summary);
     updateTable(runs);
     updateRunChart(runs);
+    updateConfigTimeline(runs);
   }
 
   // ── Summary cards ──────────────────────────────────────────────────────
@@ -112,15 +157,50 @@
     }
   }
 
+  // ── Config changes timeline ────────────────────────────────────────────
+
+  function updateConfigTimeline(runs) {
+    // runs are DESC — reverse to chronological for display
+    const chrono = [...runs].reverse();
+    const changes = chrono.filter(r => r.config_deltas && Object.keys(r.config_deltas).length > 0);
+
+    if (!changes.length) {
+      cfgPanel.style.display = 'none';
+      return;
+    }
+    cfgPanel.style.display = '';
+    cfgTimeline.innerHTML = '';
+
+    changes.forEach(r => {
+      const el = document.createElement('div');
+      el.className = 'cfg-change-entry';
+      const deltaStrs = Object.entries(r.config_deltas).map(([key, d]) => {
+        const label = PARAM_LABELS[key] || key;
+        return '<span class="cfg-delta-item">' + label +
+          ': <span class="cfg-old">' + d.prev + '</span> \u2192 ' +
+          '<span class="cfg-new">' + d.curr + '</span></span>';
+      });
+      el.innerHTML = '<span class="cfg-run-badge">Run #' + r.run_number + '</span> ' +
+        deltaStrs.join(' ');
+      cfgTimeline.appendChild(el);
+    });
+  }
+
   // ── Table ──────────────────────────────────────────────────────────────
 
   function updateTable(runs) {
     tbody.innerHTML = '';
     // runs are already sorted DESC from the API
     runs.forEach(r => {
+      const hasDelta = r.config_deltas && Object.keys(r.config_deltas).length > 0;
+
+      // Main data row
       const tr = document.createElement('tr');
+      if (hasDelta) tr.classList.add('has-delta');
       tr.innerHTML =
-        '<td class="col-run">' + r.run_number + '</td>' +
+        '<td class="col-run">' + r.run_number +
+          (hasDelta ? ' <span class="cfg-icon" title="Config changed">\u2699</span>' : '') +
+        '</td>' +
         '<td class="col-time">' + fmtTime(r.created_at) + '</td>' +
         velCell(r, 'gate_1_transit_velocity_ms') +
         velCell(r, 'gate_2_transit_velocity_ms') +
@@ -128,6 +208,26 @@
         velCell(r, 'gate_1_to_gate_2_velocity_ms') +
         velCell(r, 'gate_2_to_gate_3_velocity_ms');
       tbody.appendChild(tr);
+
+      // Expandable config delta row
+      if (hasDelta) {
+        const deltaTr = document.createElement('tr');
+        deltaTr.className = 'delta-row';
+        deltaTr.style.display = 'none';
+        const deltaStrs = Object.entries(r.config_deltas).map(([key, d]) => {
+          const label = PARAM_LABELS[key] || key;
+          return label + ': ' + d.prev + ' \u2192 ' + d.curr;
+        });
+        deltaTr.innerHTML = '<td colspan="7" class="delta-cell">' +
+          deltaStrs.join(' &nbsp;\u2502&nbsp; ') + '</td>';
+        tbody.appendChild(deltaTr);
+
+        // Toggle on click
+        tr.style.cursor = 'pointer';
+        tr.addEventListener('click', () => {
+          deltaTr.style.display = deltaTr.style.display === 'none' ? '' : 'none';
+        });
+      }
     });
   }
 
@@ -149,7 +249,6 @@
   // ── Run-over-run chart ─────────────────────────────────────────────────
 
   function updateRunChart(runs) {
-    // Runs come DESC from API — reverse to chronological for charting
     const chronological = [...runs].reverse();
     const labels = chronological.map(r => '#' + r.run_number);
 
@@ -245,6 +344,7 @@
     tbody.innerHTML = '';
     emptyMsg.style.display = 'block';
     seqInfo.textContent = '';
+    cfgPanel.style.display = 'none';
     for (const ids of Object.values(SUMMARY_MAP)) {
       document.getElementById(ids.min).textContent = '--';
       document.getElementById(ids.avg).textContent = '--';

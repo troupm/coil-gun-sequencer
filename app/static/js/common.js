@@ -1,36 +1,48 @@
 /**
- * Shared SSE client and API helpers.
- * Every page sources this first; page-specific scripts register a
- * callback via onStateUpdate() to receive sequencer state snapshots.
+ * Shared SocketIO client and API helpers.
+ * Every page sources this first; page-specific scripts register
+ * callbacks via onStateUpdate() and onEvent() to receive data.
  */
 
-// ── SSE connection ─────────────────────────────────────────────────────
+// ── SocketIO connection ────────────────────────────────────────────────
 
 let _stateCallbacks = [];
+let _eventCallbacks = {};  // event name -> [fn, ...]
 let _lastState = null;
-let _evtSource = null;
+let socket = null;
 
 function onStateUpdate(fn) {
   _stateCallbacks.push(fn);
-  // If we already have state, call immediately
   if (_lastState) fn(_lastState);
 }
 
-function _connectSSE() {
-  if (_evtSource) _evtSource.close();
-  _evtSource = new EventSource('/api/stream');
+function onEvent(event, fn) {
+  if (!_eventCallbacks[event]) _eventCallbacks[event] = [];
+  _eventCallbacks[event].push(fn);
+}
 
-  _evtSource.onmessage = function(e) {
-    const data = JSON.parse(e.data);
+function _connectSocketIO() {
+  socket = io();
+
+  socket.on('connect', function () {
+    _setConnStatus('LIVE', true);
+  });
+
+  socket.on('disconnect', function () {
+    _setConnStatus('OFFLINE', false);
+  });
+
+  socket.on('state_update', function (data) {
     _lastState = data;
     _stateCallbacks.forEach(fn => fn(data));
-    _setConnStatus('LIVE', true);
-  };
+  });
 
-  _evtSource.onerror = function() {
-    _setConnStatus('OFFLINE', false);
-    // EventSource auto-reconnects
-  };
+  // Forward named events to registered listeners
+  ['run_saved', 'config_updated', 'sequence_changed'].forEach(evt => {
+    socket.on(evt, function (data) {
+      (_eventCallbacks[evt] || []).forEach(fn => fn(data));
+    });
+  });
 }
 
 function _setConnStatus(text, ok) {
@@ -42,7 +54,7 @@ function _setConnStatus(text, ok) {
 }
 
 // Connect on load
-document.addEventListener('DOMContentLoaded', _connectSSE);
+document.addEventListener('DOMContentLoaded', _connectSocketIO);
 
 
 // ── API helpers ────────────────────────────────────────────────────────

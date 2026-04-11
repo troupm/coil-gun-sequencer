@@ -8,14 +8,12 @@ Design priorities (from spec):
 """
 
 import enum
-import json
 import logging
-import queue
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from app.hardware.base import HardwareInterface
 
@@ -112,39 +110,27 @@ def compute_stats(run: RunData, cfg: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# State publisher (SSE fan-out)
+# State publisher (SocketIO fan-out)
 # ---------------------------------------------------------------------------
 
 class StatePublisher:
-    """Thread-safe fan-out of state snapshots to SSE subscribers."""
+    """Pushes state snapshots and targeted events to clients via SocketIO."""
 
     def __init__(self) -> None:
-        self._subscribers: List[queue.Queue] = []
-        self._lock = threading.Lock()
+        self._socketio = None
 
-    def subscribe(self) -> queue.Queue:
-        q: queue.Queue = queue.Queue(maxsize=64)
-        with self._lock:
-            self._subscribers.append(q)
-        return q
-
-    def unsubscribe(self, q: queue.Queue) -> None:
-        with self._lock:
-            try:
-                self._subscribers.remove(q)
-            except ValueError:
-                pass
+    def init_socketio(self, socketio) -> None:
+        self._socketio = socketio
 
     def publish(self, data: dict) -> None:
-        with self._lock:
-            dead: List[queue.Queue] = []
-            for q in self._subscribers:
-                try:
-                    q.put_nowait(data)
-                except queue.Full:
-                    dead.append(q)
-            for q in dead:
-                self._subscribers.remove(q)
+        """Broadcast a full state snapshot to all connected clients."""
+        if self._socketio:
+            self._socketio.emit("state_update", data)
+
+    def emit(self, event: str, data: dict) -> None:
+        """Emit a named event (e.g. run_saved, config_updated)."""
+        if self._socketio:
+            self._socketio.emit(event, data)
 
 
 # ---------------------------------------------------------------------------
