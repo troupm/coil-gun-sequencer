@@ -19,7 +19,8 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('History available:', d['content'] is not None\\); print\\('First line:', d['content'].splitlines\\(\\)[0]\\)\")",
       "Bash(python -c \"import sys,json; print\\(json.load\\(sys.stdin\\)\\)\")",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Save:', d['status'], '| Run:', d.get\\('event_log_id'\\)\\)\")",
-      "Bash(python -c \"import sys,json; print\\('Final state:', json.load\\(sys.stdin\\)['state']\\)\")"
+      "Bash(python -c \"import sys,json; print\\('Final state:', json.load\\(sys.stdin\\)['state']\\)\")",
+      "Bash(python:*)"
     ]
   }
 }
