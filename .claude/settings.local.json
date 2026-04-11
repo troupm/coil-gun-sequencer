@@ -6,7 +6,9 @@
       "Bash(python run.py)",
       "Bash(curl:*)",
       "Bash(python -c ':*)",
-      "Bash(bash -n setup_host_rpi.sh)"
+      "Bash(bash -n setup_host_rpi.sh)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('State:', d['state']\\)\")"
     ]
   }
 }

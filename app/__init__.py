@@ -44,10 +44,12 @@ def create_app() -> Flask:
     from app.routes.api import api_bp
     from app.routes.touchscreen import ts_bp
     from app.routes.configuration import cfg_bp
+    from app.routes.analysis import analysis_bp
 
     app.register_blueprint(api_bp)
     app.register_blueprint(ts_bp)
     app.register_blueprint(cfg_bp)
+    app.register_blueprint(analysis_bp)
 
     # Teardown
     @app.teardown_appcontext

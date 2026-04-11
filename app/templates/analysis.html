@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Trend Analysis{% endblock %}
+{% block nav_analysis %}active{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
+
+{% block content %}
+<div class="an-layout">
+
+  <!-- ── Filter bar ──────────────────────────────────────────────────── -->
+  <div class="an-filter-bar">
+    <label for="seq-select">Sequence</label>
+    <select id="seq-select">
+      <option value="">Loading...</option>
+    </select>
+    <span class="an-filter-info" id="seq-info"></span>
+  </div>
+
+  <!-- ── Summary cards ───────────────────────────────────────────────── -->
+  <div class="an-summary" id="summary-cards">
+    <div class="an-card" data-key="gate_1_transit_velocity_ms">
+      <div class="an-card-title">G1 Transit v</div>
+      <div class="an-card-body">
+        <span class="an-min" id="sum-g1t-min">--</span>
+        <span class="an-avg" id="sum-g1t-avg">--</span>
+        <span class="an-max" id="sum-g1t-max">--</span>
+      </div>
+      <div class="an-card-labels"><span>min</span><span>avg</span><span>max</span></div>
+    </div>
+    <div class="an-card" data-key="gate_2_transit_velocity_ms">
+      <div class="an-card-title">G2 Transit v</div>
+      <div class="an-card-body">
+        <span class="an-min" id="sum-g2t-min">--</span>
+        <span class="an-avg" id="sum-g2t-avg">--</span>
+        <span class="an-max" id="sum-g2t-max">--</span>
+      </div>
+      <div class="an-card-labels"><span>min</span><span>avg</span><span>max</span></div>
+    </div>
+    <div class="an-card" data-key="gate_3_transit_velocity_ms">
+      <div class="an-card-title">G3 Transit v</div>
+      <div class="an-card-body">
+        <span class="an-min" id="sum-g3t-min">--</span>
+        <span class="an-avg" id="sum-g3t-avg">--</span>
+        <span class="an-max" id="sum-g3t-max">--</span>
+      </div>
+      <div class="an-card-labels"><span>min</span><span>avg</span><span>max</span></div>
+    </div>
+    <div class="an-card" data-key="gate_1_to_gate_2_velocity_ms">
+      <div class="an-card-title">G1&rarr;G2 Flight v</div>
+      <div class="an-card-body">
+        <span class="an-min" id="sum-g12f-min">--</span>
+        <span class="an-avg" id="sum-g12f-avg">--</span>
+        <span class="an-max" id="sum-g12f-max">--</span>
+      </div>
+      <div class="an-card-labels"><span>min</span><span>avg</span><span>max</span></div>
+    </div>
+    <div class="an-card highlight" data-key="gate_2_to_gate_3_velocity_ms">
+      <div class="an-card-title">Muzzle v (G2&rarr;G3)</div>
+      <div class="an-card-body">
+        <span class="an-min" id="sum-g23f-min">--</span>
+        <span class="an-avg" id="sum-g23f-avg">--</span>
+        <span class="an-max" id="sum-g23f-max">--</span>
+      </div>
+      <div class="an-card-labels"><span>min</span><span>avg</span><span>max</span></div>
+    </div>
+  </div>
+
+  <!-- ── Charts ──────────────────────────────────────────────────────── -->
+  <div class="an-charts">
+    <div class="an-chart-box">
+      <h3>Run-over-Run Velocity</h3>
+      <canvas id="chart-runs"></canvas>
+    </div>
+    <div class="an-chart-box">
+      <h3>Sequence-over-Sequence Average</h3>
+      <canvas id="chart-sequences"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Table ───────────────────────────────────────────────────────── -->
+  <div class="an-table-wrap">
+    <table class="an-table" id="runs-table">
+      <thead>
+        <tr>
+          <th>Run</th>
+          <th>Time</th>
+          <th>G1 Transit v</th>
+          <th>G2 Transit v</th>
+          <th>G3 Transit v</th>
+          <th>G1&rarr;G2 v</th>
+          <th>Muzzle v</th>
+        </tr>
+      </thead>
+      <tbody id="runs-tbody"></tbody>
+    </table>
+    <div class="an-empty" id="empty-msg">Select a sequence to view runs</div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/analysis.js') }}"></script>
+{% endblock %}
