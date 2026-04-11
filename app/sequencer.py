@@ -152,6 +152,7 @@ class Sequencer:
         self._run_sequence_id: str = str(uuid.uuid4())
         self._run_number: int = 0
         self._current_run: Optional[RunData] = None
+        self._run_generation: int = 0  # incremented on each arm; guards late callbacks
 
         # Active config (loaded from DB or defaults on startup)
         self._config: dict = {}
@@ -245,6 +246,7 @@ class Sequencer:
                 return False
             self._state = State.ARMED
             self._run_number += 1
+            self._run_generation += 1
             self._current_run = RunData(
                 run_sequence_id=self._run_sequence_id,
                 run_number=self._run_number,
@@ -267,8 +269,10 @@ class Sequencer:
                 log.warning(f"Cannot fire: state is {self._state}")
                 return False
             self._state = State.FIRING
-
-        run = self._current_run
+            # Capture run ref and config inside lock so concurrent
+            # disarm/clear cannot null them before we use them.
+            run = self._current_run
+            pulse_us = self._config["coil_1_pulse_duration_us"]
 
         # Record the fire command timestamp
         run.record("t_coil_0")
@@ -283,7 +287,7 @@ class Sequencer:
         # Coil 1 pulse duration handled in a dedicated thread
         threading.Thread(
             target=self._coil_pulse_thread,
-            args=(1, self._config["coil_1_pulse_duration_us"]),
+            args=(1, pulse_us),
             daemon=True,
         ).start()
 
@@ -304,13 +308,18 @@ class Sequencer:
     def save_run(self) -> Optional[dict]:
         """Finalise the current run and return its data for DB persistence.
 
-        Disarms coils and transitions to READY.
+        Disarms coils and transitions to READY.  The run reference is
+        claimed atomically under the lock so concurrent save/clear calls
+        cannot produce duplicates.
         """
-        run = self._current_run
-        if run is None:
-            return None
+        with self._lock:
+            run = self._current_run
+            if run is None:
+                return None
+            # Claim the run — no other thread can save it after this.
+            self._current_run = None
 
-        # Compute final stats
+        # Compute final stats (safe: we own the only ref to *run*)
         stats = compute_stats(run, self._config)
         self._last_stats = stats
 
@@ -323,35 +332,36 @@ class Sequencer:
         }
 
         self.disarm()
-        self._current_run = None
         return result
 
     def clear_run(self) -> None:
         """Abort the current run without saving. Return to READY."""
-        self._current_run = None
+        with self._lock:
+            self._current_run = None
         self._last_stats = {}
         self.disarm()
 
     # -- internal: gate callbacks -----------------------------------------
 
     def _register_gate_callbacks(self) -> None:
+        gen = self._run_generation  # capture for closure
         for g in (1, 2, 3):
-            gate_num = g  # capture for closure
+            gate_num = g
 
-            def _on_leading(gn=gate_num):
-                self._on_gate_leading(gn)
+            def _on_leading(gn=gate_num, g=gen):
+                self._on_gate_leading(gn, g)
 
-            def _on_trailing(gn=gate_num):
-                self._on_gate_trailing(gn)
+            def _on_trailing(gn=gate_num, g=gen):
+                self._on_gate_trailing(gn, g)
 
             self.hw.register_gate_callback(gate_num, "falling", _on_leading)
             self.hw.register_gate_callback(gate_num, "rising", _on_trailing)
 
-    def _on_gate_leading(self, gate_num: int) -> None:
+    def _on_gate_leading(self, gate_num: int, gen: int) -> None:
         """Handle beam-break leading edge (falling edge on GPIO)."""
         run = self._current_run
-        if run is None:
-            return
+        if run is None or gen != self._run_generation:
+            return  # stale callback from a previous run
 
         t = run.record(f"t_gate_{gate_num}_on")
         log.info(f"Gate {gate_num} LEADING edge @ {t}")
@@ -374,11 +384,11 @@ class Sequencer:
             daemon=True,
         ).start()
 
-    def _on_gate_trailing(self, gate_num: int) -> None:
+    def _on_gate_trailing(self, gate_num: int, gen: int) -> None:
         """Handle beam-restore trailing edge (rising edge on GPIO)."""
         run = self._current_run
-        if run is None:
-            return
+        if run is None or gen != self._run_generation:
+            return  # stale callback from a previous run
 
         run.record(f"t_gate_{gate_num}_off")
         log.info(f"Gate {gate_num} TRAILING edge")

@@ -11,13 +11,27 @@
   const stateLbl = document.getElementById('state-label');
 
   // ── Button handlers ──────────────────────────────────────────────────
+  // Disable immediately on click to prevent double-fire before the
+  // state_update round-trip re-enables/disables based on actual state.
 
-  btnArm.addEventListener('click', () => apiPost('/arm'));
-  btnFire.addEventListener('click', () => apiPost('/fire'));
-  btnSave.addEventListener('click', () => apiPost('/save'));
-  btnClear.addEventListener('click', () => apiPost('/clear'));
+  btnArm.addEventListener('click', () => {
+    btnArm.disabled = true;
+    apiPost('/arm');
+  });
+  btnFire.addEventListener('click', () => {
+    btnFire.disabled = true;
+    apiPost('/fire');
+  });
+  btnSave.addEventListener('click', () => {
+    btnSave.disabled = true;
+    apiPost('/save');
+  });
+  btnClear.addEventListener('click', () => {
+    btnClear.disabled = true;
+    apiPost('/clear');
+  });
 
-  // ── State updates via SSE ────────────────────────────────────────────
+  // ── State updates via SocketIO ───────────────────────────────────────
 
   onStateUpdate(function(s) {
     const state = s.state;
@@ -26,7 +40,7 @@
     stateInd.className = 'state-indicator ' + state;
     stateLbl.textContent = state.toUpperCase();
 
-    // Button enable/disable
+    // Button enable/disable (authoritative, from server state)
     btnArm.disabled   = state !== 'ready';
     btnFire.disabled  = state !== 'armed';
     btnSave.disabled  = (state !== 'firing' && state !== 'complete' && state !== 'armed');
