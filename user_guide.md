@@ -163,6 +163,26 @@ are saved automatically as you edit them.
 | Gate 1 to 2 (mm) | Physical distance between gate 1 and gate 2. Used to calculate flight velocity. |
 | Gate 2 to 3 (mm) | Physical distance between gate 2 and gate 3. Used to calculate muzzle velocity. |
 
+**Power Source**
+
+| Parameter                | What it means                                     |
+|--------------------------|---------------------------------------------------|
+| Capacitor Bank (µF)      | Total installed capacitance. Recorded with each run so you can compare results across capacitor upgrades. |
+| Rail Source Active       | Checkbox. Tick it when a continuous rail supply is feeding the coils (in addition to, or instead of, the capacitor bank). The app stores the current V Ceiling value when checked, or 0 when unchecked. |
+
+**Flyback / Brake Modules**
+
+The rig uses a dedicated SiC flyback+brake module per coil. Each module has a
+different series brake resistor ({0, 1, 2, 4, 10} Ω). Higher resistance makes
+coil current decay faster after switch-off (reducing projectile "suck-back"),
+but produces a larger voltage spike across the switch — verify your switch's
+V_CE headroom before installing a higher-Ω module.
+
+| Parameter              | What it means                                    |
+|------------------------|--------------------------------------------------|
+| Coil 1 Brake R (Ω)    | Brake resistor value of the flyback module currently installed on coil 1. Update this when you swap modules. |
+| Coil 2 Brake R (Ω)    | Brake resistor value of the flyback module currently installed on coil 2. Update this when you swap modules. |
+
 ### Action Buttons
 
 | Button          | What it does                                         |

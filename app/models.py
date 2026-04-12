@@ -41,6 +41,13 @@ class ConfigSnapshot(db.Model):
     capacitor_bank_size_uf = db.Column(db.Float, nullable=False, default=1000.0)
     rail_source_active = db.Column(db.Float, nullable=False, default=0.0)
 
+    # Flyback module brake resistors (ohms). Metadata only — not read by
+    # the firing path. One dedicated SiC flyback+brake module per coil;
+    # defaults reflect the currently-installed hardware. Logged per
+    # snapshot so the velocity analyzer can correlate it with outcomes.
+    coil_1_brake_resistor_ohms = db.Column(db.Float, nullable=False, default=10.0)
+    coil_2_brake_resistor_ohms = db.Column(db.Float, nullable=False, default=1.0)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -59,6 +66,8 @@ class ConfigSnapshot(db.Model):
             "gate_2_to_gate_3_distance_mm": self.gate_2_to_gate_3_distance_mm,
             "capacitor_bank_size_uf": self.capacitor_bank_size_uf,
             "rail_source_active": self.rail_source_active,
+            "coil_1_brake_resistor_ohms": self.coil_1_brake_resistor_ohms,
+            "coil_2_brake_resistor_ohms": self.coil_2_brake_resistor_ohms,
         }
 
     # Parameter keys that map 1:1 to column names. All are numeric (float)
@@ -78,6 +87,8 @@ class ConfigSnapshot(db.Model):
         "gate_2_to_gate_3_distance_mm",
         "capacitor_bank_size_uf",
         "rail_source_active",
+        "coil_1_brake_resistor_ohms",
+        "coil_2_brake_resistor_ohms",
     ]
 
 

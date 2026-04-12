@@ -26,6 +26,14 @@ DEFAULTS = {
                                        # v_coil_ceiling when the box is checked
                                        # so ML tools get a continuous feature
                                        # instead of a 0/1 indicator)
+    # Flyback module brake-resistor values (ohms). Metadata only — the
+    # firing path doesn't read them. Each coil has a dedicated
+    # `SiC flyback diode + brake resistor` module; swapping the module
+    # trades V_CE spike magnitude for freewheel decay speed (sharper
+    # turn-off reduces projectile suck-back). Defaults reflect the
+    # resistors currently installed on the rig.
+    "coil_1_brake_resistor_ohms": 10.0,
+    "coil_2_brake_resistor_ohms": 1.0,
 }
 
 
