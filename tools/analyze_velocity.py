@@ -34,6 +34,8 @@ CONFIG_PARAMS = [
     "gate_2_to_gate_3_distance_mm",
     "capacitor_bank_size_uf",
     "rail_source_active",
+    "coil_1_brake_resistor_ohms",
+    "coil_2_brake_resistor_ohms",
 ]
 
 VELOCITY_METRICS = [
@@ -93,7 +95,9 @@ def get_runs_with_config(conn, sequence_ids):
             c.gate_1_to_gate_2_distance_mm,
             c.gate_2_to_gate_3_distance_mm,
             c.capacitor_bank_size_uf,
-            c.rail_source_active
+            c.rail_source_active,
+            c.coil_1_brake_resistor_ohms,
+            c.coil_2_brake_resistor_ohms
         FROM event_logs e
         LEFT JOIN config_snapshots c ON e.config_snapshot_id = c.id
         WHERE e.run_sequence_id IN ({placeholders})
