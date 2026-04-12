@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Fire Control{% endblock %}
+{% block nav_ts %}active{% endblock %}
+
+{% block content %}
+<div class="ts-layout">
+
+  <!-- Left column: controls -->
+  <div class="ts-controls">
+    <div class="state-indicator" id="state-indicator">
+      <span class="state-label" id="state-label">--</span>
+    </div>
+
+    <button class="btn btn-arm" id="btn-arm" disabled>ARM</button>
+    <button class="btn btn-fire" id="btn-fire" disabled>FIRE</button>
+
+    <div class="btn-row">
+      <button class="btn btn-save" id="btn-save" disabled>SAVE</button>
+      <button class="btn btn-clear" id="btn-clear" disabled>CLEAR</button>
+    </div>
+  </div>
+
+  <!-- Right column: statistics -->
+  <div class="ts-stats">
+    <h2>Run Statistics</h2>
+    <table class="stats-table" id="stats-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Transit</th>
+          <th>Flight</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="row-label">Gate 1</td>
+          <td id="g1-transit">--</td>
+          <td class="na">--</td>
+        </tr>
+        <tr>
+          <td class="row-label">Gate 2</td>
+          <td id="g2-transit">--</td>
+          <td id="g12-flight">--</td>
+        </tr>
+        <tr>
+          <td class="row-label">Gate 3</td>
+          <td id="g3-transit">--</td>
+          <td id="g23-flight">--</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <table class="stats-table" id="vel-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Transit v</th>
+          <th>Flight v</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="row-label">Gate 1</td>
+          <td id="g1-tvel">--</td>
+          <td class="na">--</td>
+        </tr>
+        <tr>
+          <td class="row-label">Gate 2</td>
+          <td id="g2-tvel">--</td>
+          <td id="g12-fvel">--</td>
+        </tr>
+        <tr>
+          <td class="row-label">Gate 3</td>
+          <td id="g3-tvel">--</td>
+          <td id="g23-fvel">--</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="run-info">
+      <span id="run-info-text">Sequence: -- | Run: --</span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/touchscreen.js') }}"></script>
+{% endblock %}

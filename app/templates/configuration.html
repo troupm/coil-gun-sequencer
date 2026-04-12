@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Configuration{% endblock %}
+{% block nav_cfg %}active{% endblock %}
+
+{% block content %}
+<div class="cfg-layout">
+
+  <div class="cfg-section">
+    <h2>Projectile</h2>
+    <div class="cfg-field">
+      <label for="projectile_length_mm">Length (mm)</label>
+      <input type="number" id="projectile_length_mm" step="0.1" min="0">
+    </div>
+    <div class="cfg-field">
+      <label for="projectile_mass_grams">Mass (g)</label>
+      <input type="number" id="projectile_mass_grams" step="0.01" min="0">
+    </div>
+  </div>
+
+  <div class="cfg-section">
+    <h2>Voltage Thresholds</h2>
+    <div class="cfg-field">
+      <label for="v_coil_floor">V Floor (V)</label>
+      <input type="number" id="v_coil_floor" step="0.1" min="0">
+    </div>
+    <div class="cfg-field">
+      <label for="v_coil_ceiling">V Ceiling (V)</label>
+      <input type="number" id="v_coil_ceiling" step="0.1" min="0">
+    </div>
+  </div>
+
+  <div class="cfg-section">
+    <h2>Stage 1 &rarr; 2 Timing</h2>
+    <div class="cfg-field">
+      <label for="gate_1_coil_2_delay_us">Gate 1 &rarr; Coil 2 Delay (&micro;s)</label>
+      <input type="number" id="gate_1_coil_2_delay_us" step="10" min="0">
+    </div>
+    <div class="cfg-field">
+      <label for="coil_1_pulse_duration_us">Coil 1 Pulse (&micro;s)</label>
+      <input type="number" id="coil_1_pulse_duration_us" step="10" min="0">
+    </div>
+    <div class="cfg-field">
+      <label for="coil_2_pulse_duration_us">Coil 2 Pulse (&micro;s)</label>
+      <input type="number" id="coil_2_pulse_duration_us" step="10" min="0">
+    </div>
+  </div>
+
+  <div class="cfg-section">
+    <h2>Stage 2 &rarr; 3 Timing</h2>
+    <div class="cfg-field">
+      <label for="gate_2_coil_3_delay_us">Gate 2 &rarr; Coil 3 Delay (&micro;s)</label>
+      <input type="number" id="gate_2_coil_3_delay_us" step="10" min="0">
+    </div>
+    <div class="cfg-field">
+      <label for="coil_3_pulse_duration_us">Coil 3 Pulse (&micro;s)</label>
+      <input type="number" id="coil_3_pulse_duration_us" step="10" min="0">
+    </div>
+  </div>
+
+  <div class="cfg-section">
+    <h2>Gate Distances</h2>
+    <div class="cfg-field">
+      <label for="gate_1_to_gate_2_distance_mm">Gate 1 &rarr; 2 (mm)</label>
+      <input type="number" id="gate_1_to_gate_2_distance_mm" step="0.5" min="0">
+    </div>
+    <div class="cfg-field">
+      <label for="gate_2_to_gate_3_distance_mm">Gate 2 &rarr; 3 (mm)</label>
+      <input type="number" id="gate_2_to_gate_3_distance_mm" step="0.5" min="0">
+    </div>
+  </div>
+
+  <div class="cfg-section">
+    <h2>Power Source</h2>
+    <div class="cfg-field">
+      <label for="capacitor_bank_size_uf">Capacitor Bank (&micro;F)</label>
+      <input type="number" id="capacitor_bank_size_uf" step="1" min="0">
+    </div>
+    <div class="cfg-field cfg-field-check">
+      <label for="rail_source_active">Rail Source Active</label>
+      <input type="checkbox" id="rail_source_active">
+    </div>
+  </div>
+
+  <div class="cfg-actions">
+    <button class="btn btn-save" id="btn-cfg-save">SAVE RUN</button>
+    <button class="btn btn-clear" id="btn-cfg-clear">CLEAR</button>
+    <button class="btn btn-seq" id="btn-new-seq">NEW SEQUENCE</button>
+  </div>
+
+  <div class="cfg-status">
+    <span id="cfg-status-text">--</span>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/configuration.js') }}"></script>
+{% endblock %}

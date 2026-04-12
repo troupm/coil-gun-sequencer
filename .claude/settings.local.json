@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pip install flask flask-sqlalchemy waitress)",
+      "Bash(python -c \"from app import create_app; app = create_app\\(\\); print\\('App created successfully'\\)\")",
+      "Bash(python run.py)",
+      "Bash(curl:*)",
+      "Bash(python -c ':*)",
+      "Bash(bash -n setup_host_rpi.sh)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('State:', d['state']\\)\")",
+      "Bash(python -m pip install flask-socketio simple-websocket)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('State:', d['state'], '| SocketIO mode: OK'\\)\")",
+      "Bash(python -c \"import sys,json; print\\(json.load\\(sys.stdin\\)['run_number']\\)\")",
+      "Bash(python tools/analyze_velocity.py)",
+      "Bash(python -c \"from app import create_app; app = create_app\\(\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'{len\\(d\\)} result file\\(s\\)'\\); [print\\(f'  {f[\\\\\"filename\\\\\"]}'\\) for f in d]\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'File: {d[\\\\\"filename\\\\\"]}'\\); print\\(f'Content length: {len\\(d[\\\\\"content\\\\\"]\\)} chars'\\); print\\(f'First line: {d[\\\\\"content\\\\\"].splitlines\\(\\)[0]}'\\)\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('History available:', d['content'] is not None\\); print\\('First line:', d['content'].splitlines\\(\\)[0]\\)\")",
+      "Bash(python -c \"import sys,json; print\\(json.load\\(sys.stdin\\)\\)\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Save:', d['status'], '| Run:', d.get\\('event_log_id'\\)\\)\")",
+      "Bash(python -c \"import sys,json; print\\('Final state:', json.load\\(sys.stdin\\)['state']\\)\")",
+      "Bash(python:*)"
+    ]
+  }
+}
