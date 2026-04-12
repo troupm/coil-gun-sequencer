@@ -34,6 +34,13 @@ class ConfigSnapshot(db.Model):
     gate_1_to_gate_2_distance_mm = db.Column(db.Float, nullable=False)
     gate_2_to_gate_3_distance_mm = db.Column(db.Float, nullable=False)
 
+    # Power source (metadata for analysis; not read by the firing path).
+    # rail_source_active is a continuous feature, not a boolean: stores the
+    # effective rail voltage (= v_coil_ceiling when on, 0 when off) so ML
+    # regressors get a meaningful magnitude instead of a 0/1 indicator.
+    capacitor_bank_size_uf = db.Column(db.Float, nullable=False, default=1000.0)
+    rail_source_active = db.Column(db.Float, nullable=False, default=0.0)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -50,9 +57,13 @@ class ConfigSnapshot(db.Model):
             "coil_3_pulse_duration_us": self.coil_3_pulse_duration_us,
             "gate_1_to_gate_2_distance_mm": self.gate_1_to_gate_2_distance_mm,
             "gate_2_to_gate_3_distance_mm": self.gate_2_to_gate_3_distance_mm,
+            "capacitor_bank_size_uf": self.capacitor_bank_size_uf,
+            "rail_source_active": self.rail_source_active,
         }
 
-    # Parameter keys that map 1:1 to column names
+    # Parameter keys that map 1:1 to column names. All are numeric (float)
+    # for ML friendliness — rail_source_active looks boolean in the UI but
+    # is stored as a continuous voltage value.
     PARAM_KEYS = [
         "projectile_length_mm",
         "projectile_mass_grams",
@@ -65,6 +76,8 @@ class ConfigSnapshot(db.Model):
         "coil_3_pulse_duration_us",
         "gate_1_to_gate_2_distance_mm",
         "gate_2_to_gate_3_distance_mm",
+        "capacitor_bank_size_uf",
+        "rail_source_active",
     ]
 
 

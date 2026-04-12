@@ -105,11 +105,24 @@ def update_config():
     current = seq.config
     changed = False
     for key in ConfigSnapshot.PARAM_KEYS:
-        if key in payload:
-            val = float(payload[key])
-            if val != current.get(key):
-                current[key] = val
-                changed = True
+        if key not in payload:
+            continue
+        raw = payload[key]
+
+        # Special-case convenience: rail_source_active accepts a JSON bool
+        # from simple clients and resolves to the current v_coil_ceiling
+        # (or 0.0) server-side, so callers don't need to know the encoding.
+        # Numeric values pass through as-is — the UI already computes the
+        # right float locally, so the bool path is primarily for scripted
+        # / external callers.
+        if key == "rail_source_active" and isinstance(raw, bool):
+            val = float(current.get("v_coil_ceiling", 0.0)) if raw else 0.0
+        else:
+            val = float(raw)
+
+        if val != current.get(key):
+            current[key] = val
+            changed = True
 
     if not changed:
         return jsonify({"status": "unchanged"})
