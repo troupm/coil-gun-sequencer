@@ -17,6 +17,15 @@ DEFAULTS = {
     "coil_3_pulse_duration_us": 1000.0,
     "gate_1_to_gate_2_distance_mm": 100.0,
     "gate_2_to_gate_3_distance_mm": 100.0,
+    # Power-source parameters. Metadata only — not read by the firing path;
+    # tracked per-snapshot so the velocity analysis can correlate them.
+    "capacitor_bank_size_uf": 1000.0,  # 1000 µF = smallest available module,
+                                       # used as the fallback for unset/empty
+    "rail_source_active": 0.0,         # 0 = rail off; >0 = rail on at that
+                                       # voltage (the UI fills this from
+                                       # v_coil_ceiling when the box is checked
+                                       # so ML tools get a continuous feature
+                                       # instead of a 0/1 indicator)
 }
 
 

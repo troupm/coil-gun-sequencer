@@ -56,6 +56,8 @@
     'coil_3_pulse_duration_us':    'Coil 3 Pulse',
     'gate_1_to_gate_2_distance_mm':'G1\u2192G2 Dist',
     'gate_2_to_gate_3_distance_mm':'G2\u2192G3 Dist',
+    'capacitor_bank_size_uf':      'Cap Bank',
+    'rail_source_active':          'Rail Src',
   };
 
   // ── DOM refs ───────────────────────────────────────────────────────────
