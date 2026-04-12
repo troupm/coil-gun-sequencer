@@ -53,6 +53,12 @@ class RunData:
     timestamps: Dict[str, Optional[int]] = field(default_factory=lambda: {
         f: None for f in TIMESTAMP_FIELDS
     })
+    # Gate-edge dedup: which gates have already had their leading/trailing
+    # edge handled in *this* run. Prevents sensor bounce or jitter from
+    # re-firing a downstream coil or overwriting a captured timestamp.
+    # Mutated only while the Sequencer's _lock is held.
+    seen_leading: set = field(default_factory=set)
+    seen_trailing: set = field(default_factory=set)
 
     def record(self, event: str) -> int:
         """Record *event* at the current instant. Returns the ns timestamp."""
@@ -358,26 +364,44 @@ class Sequencer:
             self.hw.register_gate_callback(gate_num, "rising", _on_trailing)
 
     def _on_gate_leading(self, gate_num: int, gen: int) -> None:
-        """Handle beam-break leading edge (falling edge on GPIO)."""
-        run = self._current_run
-        if run is None or gen != self._run_generation:
-            return  # stale callback from a previous run
+        """Handle beam-break leading edge (falling edge on GPIO).
 
-        t = run.record(f"t_gate_{gate_num}_on")
+        First-edge-wins: repeat callbacks for the same gate within a run
+        (sensor bounce, EMI jitter) are dropped under the lock so coil
+        pulses and timestamps can't be double-counted.
+        """
+        # Claim the edge atomically: only the first caller for this gate
+        # gets to record the timestamp and schedule the downstream coil.
+        with self._lock:
+            run = self._current_run
+            if run is None or gen != self._run_generation:
+                return  # stale callback from a previous run
+            if gate_num in run.seen_leading:
+                # Bounced/repeat edge — ignore.
+                log.debug(f"Gate {gate_num} LEADING edge ignored (already handled)")
+                return
+            run.seen_leading.add(gate_num)
+            t = run.record(f"t_gate_{gate_num}_on")
+
+            # Read everything we need for the downstream pulse while still
+            # holding the lock, so a concurrent clear/save can't race us.
+            next_coil = {1: 2, 2: 3}.get(gate_num)
+            delay_us: Optional[float] = None
+            pulse_us: Optional[float] = None
+            if next_coil is not None:
+                delay_key = {1: "gate_1_coil_2_delay_us",
+                             2: "gate_2_coil_3_delay_us"}[gate_num]
+                delay_us = self._config[delay_key]
+                pulse_us = self._config[f"coil_{next_coil}_pulse_duration_us"]
+
+        # Side effects outside the lock.
         log.info(f"Gate {gate_num} LEADING edge @ {t}")
         self._publish()
 
-        # Schedule the next coil if applicable
-        next_coil = {1: 2, 2: 3}.get(gate_num)
         if next_coil is None:
             return
 
-        delay_key = {1: "gate_1_coil_2_delay_us", 2: "gate_2_coil_3_delay_us"}[gate_num]
-        delay_us = self._config[delay_key]
-        pulse_key = f"coil_{next_coil}_pulse_duration_us"
-        pulse_us = self._config[pulse_key]
-
-        # Fire next coil after precise delay in a dedicated thread
+        # Fire next coil after precise delay in a dedicated thread.
         threading.Thread(
             target=self._delayed_coil_fire,
             args=(next_coil, t, delay_us, pulse_us),
@@ -385,12 +409,22 @@ class Sequencer:
         ).start()
 
     def _on_gate_trailing(self, gate_num: int, gen: int) -> None:
-        """Handle beam-restore trailing edge (rising edge on GPIO)."""
-        run = self._current_run
-        if run is None or gen != self._run_generation:
-            return  # stale callback from a previous run
+        """Handle beam-restore trailing edge (rising edge on GPIO).
 
-        run.record(f"t_gate_{gate_num}_off")
+        First-edge-wins dedup, same rationale as _on_gate_leading: without
+        this, a bouncing sensor would overwrite t_gate_N_off with the last
+        bounce and silently corrupt transit-velocity calculations.
+        """
+        with self._lock:
+            run = self._current_run
+            if run is None or gen != self._run_generation:
+                return  # stale callback from a previous run
+            if gate_num in run.seen_trailing:
+                log.debug(f"Gate {gate_num} TRAILING edge ignored (already handled)")
+                return
+            run.seen_trailing.add(gate_num)
+            run.record(f"t_gate_{gate_num}_off")
+
         log.info(f"Gate {gate_num} TRAILING edge")
         self._publish()
 
