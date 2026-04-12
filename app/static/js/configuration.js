@@ -20,6 +20,8 @@
     'gate_1_to_gate_2_distance_mm',
     'gate_2_to_gate_3_distance_mm',
     'capacitor_bank_size_uf',
+    'coil_1_brake_resistor_ohms',
+    'coil_2_brake_resistor_ohms',
   ];
   const RAIL_KEY = 'rail_source_active';
 

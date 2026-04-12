@@ -226,6 +226,10 @@ A new row is inserted on every parameter change, preserving full history.
 | `coil_3_pulse_duration_us`  | Float   |                           |
 | `gate_1_to_gate_2_distance_mm` | Float|                           |
 | `gate_2_to_gate_3_distance_mm` | Float|                           |
+| `capacitor_bank_size_uf`    | Float   | Metadata only — not read by firing path |
+| `rail_source_active`        | Float   | Continuous rail voltage: 0 when off, `v_coil_ceiling` when on (not boolean) |
+| `coil_1_brake_resistor_ohms`| Float   | Installed flyback brake resistor for coil 1 (Ω). Metadata only |
+| `coil_2_brake_resistor_ohms`| Float   | Installed flyback brake resistor for coil 2 (Ω). Metadata only |
 
 ### event_logs
 

@@ -45,6 +45,12 @@ file to match, don't the other way round.
   hardware gracefully
 - ADC for voltage monitoring: not purchased yet; interface is stubbed and
   `read_coil_voltage()` may return `None`
+- One dedicated `SiC flyback diode + brake resistor` module per coil.
+  Brake-R is a hardware swap (discrete modules: `{0, 1, 2, 4, 10} Ω`), logged
+  per-snapshot as `coil_N_brake_resistor_ohms`. Metadata only — the firing
+  path doesn't read it. Trades V_CE spike magnitude for faster freewheel
+  decay (shorter projectile suck-back tail). Verify switch V_CE headroom
+  before installing a higher-Ω module: spike ≈ V_rail + I_coil × R_brake.
 - No debounce >10 µs anywhere in the timing path
 
 ## State machine
