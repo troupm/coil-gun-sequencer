@@ -23,3 +23,4 @@ if __name__ == "__main__":
 
     logging.info(f"Starting SocketIO server on {host}:{port}")
     socketio.run(app, host=host, port=port, allow_unsafe_werkzeug=True)
+
