@@ -415,6 +415,178 @@ def _top_n_median_config(runs, vel_metric, config_params, n=5):
     }
 
 
+# ── Inflection points / watermark narrative ─────────────────────────────
+#
+# Walks the primary-metric velocity series for each sequence in run-number
+# order and emits a narrative-friendly timeline of peaks, troughs, and
+# high/low water-mark events, each annotated with the config parameters
+# that changed since the prior event. This is the "intuitive feature
+# importance" companion to the quantitative top-quartile profile: where
+# top-quartile tells you *which knobs matter*, inflection points tell you
+# *what tweak the operator made, and what it did next*.
+#
+# Smoothing: a 5-point centered rolling mean on the outlier-FILTERED series
+# (kept runs only). We specifically don't use median smoothing — a 3-point
+# median masks the center position with the window median, which turns
+# raw peaks into "troughs" whenever the center is the local high and its
+# neighbors are slightly lower. Rolling-mean smoothing on a
+# post-outlier-filter series is noise-robust enough (the hard misfires
+# are already gone) and preserves the local-extremum structure.
+#
+# Watermarks are tracked on raw velocities in the kept series: a "new
+# high watermark" is an extremum position whose raw velocity exceeds
+# every previously-seen kept raw velocity. That matches the operator's
+# intuition of "this run set a new record" rather than a subtler
+# smoothed-trend definition.
+
+# Minimum sequence size before inflection-point analysis runs. Matches the
+# outlier filter's _TRAILING_WINDOW_SIZE — on fewer samples the narrative
+# is dominated by individual-run noise and isn't worth rendering.
+_INFLECTION_MIN_SEQUENCE_RUNS = 10
+_SMOOTH_WINDOW = 5
+
+
+def _rolling_mean(vals, window=_SMOOTH_WINDOW):
+    """Centered rolling mean with a shrinking window at the edges."""
+    n = len(vals)
+    if n == 0:
+        return []
+    half = window // 2
+    out = [0.0] * n
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        w = vals[lo:hi]
+        out[i] = sum(w) / len(w)
+    return out
+
+
+def _config_delta(prev_cfg, curr_cfg):
+    """Return {param: {prev, curr}} for any key where prev and curr differ."""
+    changed = {}
+    for k in set(prev_cfg.keys()) | set(curr_cfg.keys()):
+        pv = prev_cfg.get(k)
+        cv = curr_cfg.get(k)
+        if pv != cv:
+            changed[k] = {"prev": pv, "curr": cv}
+    return changed
+
+
+def _inflection_points_for_sequence(seq_runs, vel_metric, kept_run_ids):
+    """Build a timeline + inflection-event list for one sequence.
+
+    seq_runs:     list of enriched run dicts (order-independent; sorted here)
+    vel_metric:   velocity metric key to analyze
+    kept_run_ids: set of id(run) values for runs that survived the
+                  outlier filter for this metric
+
+    Returns {
+        'velocity_metric': str,
+        'timeline': [{run_number, velocity, smoothed, filtered}, ...],
+                    — all runs reporting the metric, in run-number order.
+                    `smoothed` is None for outlier-filtered runs.
+        'events':   [{run_number, velocity, smoothed, kind,
+                      is_new_high_watermark, is_new_low_watermark,
+                      delta_since_prior_event,
+                      config_delta_since_prior}, ...],
+                    — extrema of the smoothed signal on the KEPT series,
+                    each annotated with raw-velocity watermark status and
+                    the config delta from the previous extremum.
+    }
+
+    Returns None for sequences too small to produce a meaningful timeline.
+    """
+    # Full display timeline — every run reporting the metric, in order.
+    all_entries = []
+    for r in sorted(seq_runs, key=lambda x: x["run_number"]):
+        v = r["velocities"].get(vel_metric)
+        if v is None:
+            continue
+        all_entries.append({
+            "run_number": r["run_number"],
+            "velocity": round(v, 4),
+            "filtered": id(r) not in kept_run_ids,
+            "_config": r["config"],
+        })
+    if len(all_entries) < _INFLECTION_MIN_SEQUENCE_RUNS:
+        return None
+
+    # Analytical series: kept runs only. This is what gets smoothed and
+    # walked for extrema. Display timeline will still show filtered runs
+    # so the operator can see outliers in context.
+    clean = [e for e in all_entries if not e["filtered"]]
+    if len(clean) < 3:
+        return None
+
+    smoothed = _rolling_mean([e["velocity"] for e in clean])
+    for e, s in zip(clean, smoothed):
+        e["smoothed"] = round(s, 4)
+
+    # Back-fill the display timeline's smoothed column: kept positions get
+    # their analytical smoothed value, filtered positions stay at None.
+    clean_by_rn = {e["run_number"]: e["smoothed"] for e in clean}
+    for e in all_entries:
+        e["smoothed"] = clean_by_rn.get(e["run_number"]) if not e["filtered"] else None
+
+    # Local-extrema detection on the smoothed kept series.
+    events = []
+    running_max = clean[0]["velocity"]
+    running_min = clean[0]["velocity"]
+    prior_event_idx = None
+
+    for i in range(1, len(clean) - 1):
+        prev_s = clean[i - 1]["smoothed"]
+        curr_s = clean[i]["smoothed"]
+        next_s = clean[i + 1]["smoothed"]
+
+        # Fold clean[i-1] into the running max/min BEFORE comparing the
+        # current position, so the comparison is "does this position beat
+        # the best seen so far".
+        running_max = max(running_max, clean[i - 1]["velocity"])
+        running_min = min(running_min, clean[i - 1]["velocity"])
+
+        is_peak = curr_s > prev_s and curr_s > next_s
+        is_trough = curr_s < prev_s and curr_s < next_s
+        if not (is_peak or is_trough):
+            continue
+
+        curr_v = clean[i]["velocity"]
+        new_high = is_peak and curr_v > running_max
+        new_low = is_trough and curr_v < running_min
+
+        if prior_event_idx is None:
+            prior_cfg = clean[0]["_config"]
+            delta_v = None
+        else:
+            prior = clean[prior_event_idx]
+            prior_cfg = prior["_config"]
+            delta_v = round(curr_s - prior["smoothed"], 4)
+
+        events.append({
+            "run_number": clean[i]["run_number"],
+            "velocity": clean[i]["velocity"],
+            "smoothed": clean[i]["smoothed"],
+            "kind": "peak" if is_peak else "trough",
+            "is_new_high_watermark": new_high,
+            "is_new_low_watermark": new_low,
+            "delta_since_prior_event": delta_v,
+            "config_delta_since_prior": _config_delta(prior_cfg, clean[i]["_config"]),
+        })
+        prior_event_idx = i
+
+    # Strip the private _config refs so the return value is JSON-safe.
+    for e in all_entries:
+        e.pop("_config", None)
+    for e in clean:
+        e.pop("_config", None)
+
+    return {
+        "velocity_metric": vel_metric,
+        "timeline": all_entries,
+        "events": events,
+    }
+
+
 # ── Core analysis ────────────────────────────────────────────────────────
 
 def analyze(db_path, seq_limit=5):
@@ -581,6 +753,27 @@ def analyze(db_path, seq_limit=5):
         if prof is not None:
             top_quartile_profiles[vm] = prof
 
+    # ── Inflection points / watermark narrative ─────────────────────────
+    #    Per-sequence walkthrough of smoothed peaks, troughs, and watermark
+    #    events on the primary metric, annotated with the config deltas
+    #    between events. This is the "intuitive feature importance"
+    #    companion to the top-quartile profile; see
+    #    _inflection_points_for_sequence for design notes.
+
+    inflection_points = {}
+    if primary_metric:
+        primary_kept_ids = {id(r) for r in filtered_by_metric.get(primary_metric, [])}
+        for seq in sequences:
+            sid = seq["run_sequence_id"]
+            seq_runs = [r for r in runs if r["run_sequence_id"] == sid]
+            if len(seq_runs) < _INFLECTION_MIN_SEQUENCE_RUNS:
+                continue
+            ip = _inflection_points_for_sequence(
+                seq_runs, primary_metric, primary_kept_ids
+            )
+            if ip is not None:
+                inflection_points[sid[:8]] = ip
+
     # ── Config parameter ranges across all runs (UNFILTERED) ────────────
     #    Intentionally unfiltered — operators want to see what they
     #    actually tested, not what survived the outlier filter.
@@ -663,6 +856,7 @@ def analyze(db_path, seq_limit=5):
         "correlations": correlations,
         "feature_importance": importance,
         "top_quartile_profiles": top_quartile_profiles,
+        "inflection_points": inflection_points,
         "config_change_impacts": config_change_impacts,
         "param_ranges": param_ranges,
         "best_run": {

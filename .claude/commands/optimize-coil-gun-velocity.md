@@ -16,6 +16,13 @@ This queries the SQLite database (`data/sequencer.db`) and outputs JSON containi
 - **correlations**: Pearson r between each config param and each velocity metric (on filtered data). Retained for reference but **prefer top_quartile_profiles** — linear correlation badly undersells non-monotonic relationships and gets dominated by the slow/mediocre bulk of runs.
 - **feature_importance**: parameters ranked by max |Pearson r|. Same caveats as `correlations`.
 - **config_change_impacts**: before/after velocity deltas when config changed between runs (skipping any run that was outlier-filtered for the relevant metric).
+- **inflection_points** ⭐ **intuitive feature-importance narrative**: per sequence (sequences with ≥10 runs), a `timeline` of `{run_number, velocity, smoothed, filtered}` for every run reporting the primary metric, plus an `events` list of local extrema in the 5-point-smoothed kept series. Each event is tagged with:
+  - `kind`: `"peak"` or `"trough"`
+  - `is_new_high_watermark` / `is_new_low_watermark`: True when the raw velocity at that position beat/undercut every prior kept run in the sequence (a literal "new record")
+  - `delta_since_prior_event`: smoothed-velocity change since the previous extremum (None on the first event)
+  - `config_delta_since_prior`: the exact config parameters that differ between this extremum's run and the previous extremum's run — i.e., **what knob the operator turned between the two trend-reversal points**
+  
+  This is the *causal narrative* companion to the quantitative `top_quartile_profiles`: top-quartile tells you **which knobs matter**, inflection points tell you **what tweak the operator made, and what happened next**. Note: smoothing is a 5-point rolling mean on the outlier-filtered series, so a "peak" reflects local *trend* topping out, not a raw-velocity single-run max — a peak can legitimately sit at a position whose raw velocity is unremarkable if its neighbors are fast. Always cross-check the event's raw `velocity` against its `smoothed` value when narrating.
 - **param_ranges**: the range of values tested for each parameter (unfiltered).
 - **best_top5_median** ⭐ **primary recommendation input**: the median configuration across the top 5 runs by primary velocity. Noise-robust — an outlier run contributes 1-of-5 votes instead of determining the entire recommendation. Use this as your optimal-config starting point.
 - **best_run**: the single highest-scoring run across all filtered metrics. **Treat as an anecdote, not a recommendation.** A single run on this rig is 1σ-ish from its own neighbors, so config values that only appear here are likely noise. Cross-check against `best_top5_median` and `top_quartile_profiles` before recommending anything from it.
@@ -34,11 +41,18 @@ Analyze the JSON output and reason about, **in this priority order**:
 
 4. **Config Change Impacts**: A/B comparisons between adjacent runs. **Important:** A single A/B ΔV on a ~33% CV rig can easily be pure noise. Only trust a trend from these deltas if it's consistent across multiple comparisons in the same direction, OR if the top-quartile profile agrees. If a single A/B says "X helped" but the top-quartile profile says the fast runs don't use X, trust the top-quartile profile.
 
-5. **Feature Importance / Correlations**: Pearson values. Use these only as a sanity check on the top-quartile profile, not as a primary signal. A param with high top-quartile |t| but near-zero Pearson r is still a real finding — it just means the relationship is non-monotonic (sweet spot).
+5. **Inflection Points Narrative**: Walk the `inflection_points.events` list for the most active sequence (usually the one with the most runs) in chronological order. At each event, read the `config_delta_since_prior` to see which knob the operator just turned, and pair it with `delta_since_prior_event` (smoothed velocity change since the last extremum). Distinguish:
+   - **New high water marks** (`is_new_high_watermark: true`) — "here's what broke through the ceiling"
+   - **New low water marks** (`is_new_low_watermark: true`) — "here's what broke the rig" (or caused a mechanical regression)
+   - **Non-watermark peaks/troughs** — attempted improvements that didn't clear the running best, or dips the sequence recovered from. These are still informative: a streak of non-watermark peaks is a plateau.
+   
+   The point is to tell a *causal* story: knob X was turned, then velocity did Y. **Cross-check every causal claim against the `top_quartile_profiles`**: if an inflection story says "shorter X helped", but top-quartile says the fast runs don't prefer shorter X, the inflection story is probably noise — flag it as such. Trust narratives that agree with the statistics; flag contradictory ones as candidates for the next A/B test rather than as findings.
 
-6. **Under-explored Parameters**: Which parameters have only been tested at 1-2 unique values in `param_ranges`? These are opportunities for the next field test.
+6. **Feature Importance / Correlations**: Pearson values. Use these only as a sanity check on the top-quartile profile, not as a primary signal. A param with high top-quartile |t| but near-zero Pearson r is still a real finding — it just means the relationship is non-monotonic (sweet spot).
 
-7. **Sequence Trend**: Are average velocities improving across sequences, plateauing, or regressing? Compare against the historical entries in `velocity_optimization_history.md` to see the longer arc.
+7. **Under-explored Parameters**: Which parameters have only been tested at 1-2 unique values in `param_ranges`? These are opportunities for the next field test.
+
+8. **Sequence Trend**: Are average velocities improving across sequences, plateauing, or regressing? Compare against the historical entries in `velocity_optimization_history.md` to see the longer arc.
 
 ## Step 3 — Generate Recommendations
 
@@ -74,6 +88,10 @@ For each recommendation, state your confidence (High/Medium/Low) and why. Flag a
    - **Dataset Overview**: sequence summaries with velocity stats
    - **Feature Importance**: ranked table of parameters and their impact
    - **Config Change Impact Log**: what happened when specific knobs were turned
+   - **Inflection Points Chart & Narrative**: render a monospace bar chart of velocity vs run number for the most active sequence (the one the analyzer produces the largest `inflection_points.timeline` for), then an annotated event table. Format guidance:
+     * **Chart**: one row per run, with a horizontal bar whose width is proportional to velocity. Mark filtered runs visibly (e.g., a `✗` or `!` suffix), and annotate inflection events inline — at least `▲` for peaks, `▼` for troughs, and an extra `*` for events that set a new high/low watermark. If a sequence has more than ~40 runs, you may collapse quiet stretches ("runs 18–24: uneventful plateau near 3.4 m/s"), but every inflection event must appear as its own row.
+     * **Annotated event table**: pick the 5–10 most informative events across the session (not just the active sequence — the all-time high and low watermarks matter even if they happened earlier). For each, show: run number + sequence shortcode, raw velocity, event type + watermark flag, smoothed velocity, `delta_since_prior_event`, the config parameter(s) that changed since the prior event, and **a one-sentence causal read** — what knob moved and what it did. Cross-check each causal read against `top_quartile_profiles`: if a narrative says "X helped" but top-quartile disagrees on direction, flag it as "likely noise" inline.
+     * **Purpose**: this is the operator-facing "intuitive feature importance" view. It should be readable even by someone who skips the top-quartile and correlation sections, and should tell a coherent story about how the session unfolded knob-by-knob. If the narrative contradicts the quantitative analysis anywhere, call that out explicitly — it's a candidate for the next A/B test.
    - **Best Known Configuration**: table of parameter values
    - **Recommendations**: optimal config + next test plan + confidence
    - **Raw Correlation Matrix**: for reference
