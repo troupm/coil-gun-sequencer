@@ -230,6 +230,12 @@ A new row is inserted on every parameter change, preserving full history.
 | `rail_source_active`        | Float   | Continuous rail voltage: 0 when off, `v_coil_ceiling` when on (not boolean) |
 | `coil_1_brake_resistor_ohms`| Float   | Installed flyback brake resistor for coil 1 (Ω). Metadata only |
 | `coil_2_brake_resistor_ohms`| Float   | Installed flyback brake resistor for coil 2 (Ω). Metadata only |
+| `coil_1_resistance_ohms`   | Float   | DC winding resistance of coil 1 (Ω). Metadata only |
+| `coil_1_inductance_uh`     | Float   | Air-core inductance of coil 1 (µH). Metadata only |
+| `coil_2_resistance_ohms`   | Float   | DC winding resistance of coil 2 (Ω). Metadata only |
+| `coil_2_inductance_uh`     | Float   | Air-core inductance of coil 2 (µH). Metadata only |
+| `coil_3_resistance_ohms`   | Float   | DC winding resistance of coil 3 (Ω). Metadata only |
+| `coil_3_inductance_uh`     | Float   | Air-core inductance of coil 3 (µH). Metadata only |
 
 ### event_logs
 
