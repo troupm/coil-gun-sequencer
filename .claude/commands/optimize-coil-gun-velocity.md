@@ -22,11 +22,79 @@ This queries the SQLite database (`data/sequencer.db`) and outputs JSON containi
 
 If the script reports an error (no data, DB not found), tell the user and stop.
 
+## Coil Electromagnetics — Physics Context
+
+Each coil stage is characterised by two electrical ratings logged per snapshot:
+**DC winding resistance** (`coil_N_resistance_ohms`, Ω) and **air-core
+inductance** (`coil_N_inductance_uh`, µH). These are metadata — the firing
+path doesn't read them — but they are statistically significant for velocity
+because they govern the magnetic-force pulse shape.
+
+### Key relationships
+
+- **L/R time-constant:** `τ = L / R`. This is how fast current (and therefore
+  magnetic field) ramps up after the MOSFET turns on. A coil with L = 476 µH
+  and R = 1.3 Ω has τ ≈ 366 µs; one with L = 1900 µH and R = 2.8 Ω has
+  τ ≈ 679 µs. Current reaches ~63% of its steady-state value after 1τ,
+  ~95% after 3τ.
+
+- **Peak current:** `I_peak = V_rail / R` (at steady state). Lower resistance
+  → higher peak current → stronger field, but also longer decay tail after
+  turn-off (more suck-back risk without adequate braking).
+
+- **Pulse duration vs τ:** The `coil_N_pulse_duration_us` setting interacts
+  directly with τ. If pulse ≪ τ, the coil barely magnetises before turn-off
+  (wasted energy). If pulse ≫ 3τ, the field is already saturated and extra
+  on-time just heats the winding and extends the suck-back window. The sweet
+  spot is typically 1–3τ, but the optimal point shifts with projectile
+  velocity (faster projectiles spend less time in the bore, so the field must
+  ramp faster).
+
+- **Inductance vs field strength:** Higher L produces more flux per amp
+  (stronger pull per unit current) but ramps slower. There is a
+  design-level trade-off: a coil wound for high L may never reach peak
+  current within a short pulse.
+
+- **Brake resistor coupling:** After turn-off, stored energy decays through
+  the flyback path with time-constant `τ_decay = L / (R_winding + R_brake)`.
+  Higher `R_brake` → faster decay → shorter suck-back tail, but the V_CE
+  spike at the switch is `≈ V_rail + I_coil × R_brake`. The coil's L and R
+  determine I_coil at turn-off, so brake-resistor analysis must consider the
+  coil ratings together.
+
+### How to use in analysis
+
+When interpreting correlations and top-quartile profiles:
+
+1. **Compute τ for each stage** from the logged R and L values so you can
+   express pulse durations in units of τ (e.g., "coil 1 pulse = 4.1τ").
+   This normalised view reveals whether a pulse is under-driving or
+   over-driving the coil independent of the absolute µs value.
+
+2. **Flag pulse/τ mismatches:** If the top-quartile profile shows fast runs
+   favour a specific pulse duration AND the coil ratings are constant across
+   runs, note the implied τ ratio. If coil ratings vary across runs,
+   check whether the velocity gain tracks pulse_us or pulse_us/τ — the
+   latter suggests the operator should tune pulse duration relative to the
+   coil's time-constant, not to a fixed µs value.
+
+3. **Cross-stage comparison:** Different stages fire at different projectile
+   velocities. A later stage (higher projectile speed) may need a coil with
+   a shorter τ (lower L/R) to deliver its field pulse before the projectile
+   exits the bore. Note whether the installed coil ratings match this
+   expectation and flag any anomalies.
+
+4. **Recommendation context:** When recommending pulse duration changes,
+   always state the current τ and the resulting pulse/τ ratio so the
+   operator can judge whether the recommendation is physically reasonable.
+   A recommendation to double pulse duration on a coil that's already at
+   5τ is almost certainly chasing noise.
+
 ## Step 2 — Interpret Results
 
 Analyze the JSON output and reason about, **in this priority order**:
 
-1. **Top-Quartile Profile** (anchor your analysis here): For the primary velocity metric, which parameters have the largest |t-stat| between the fastest 25% of runs and the rest? Strong positive *t* means the fast runs tend to use higher values of that parameter; strong negative *t* means the fast runs prefer lower values. This is much more trustworthy than Pearson on a high-CV rig. Cross-check against the physics: back-EMF, projectile-entry timing, capacitor recharge, etc.
+1. **Top-Quartile Profile** (anchor your analysis here): For the primary velocity metric, which parameters have the largest |t-stat| between the fastest 25% of runs and the rest? Strong positive *t* means the fast runs tend to use higher values of that parameter; strong negative *t* means the fast runs prefer lower values. This is much more trustworthy than Pearson on a high-CV rig. Cross-check against the physics: L/R time-constant vs pulse duration (see "Coil Electromagnetics" above), back-EMF, projectile-entry timing, capacitor recharge, etc. When pulse-duration params appear in the profile, always compute the pulse/τ ratio for that stage and reason about whether the statistical signal is consistent with the electromagnetic model.
 
 2. **Best Top-5 Median**: What config values emerged as the consensus across the top 5 runs? These should form the backbone of your "optimal config" recommendation. If `best_top5_median` disagrees with `best_run` on a parameter, **prefer the median** — the single-best run is a noise datapoint, not a signal. Call out any such disagreements explicitly.
 
@@ -47,15 +115,24 @@ Produce three categories of recommendations:
 ### Optimal Config (Best Known)
 The configuration settings most likely to produce maximum velocity, based on all evidence.
 
+### Coil Electromagnetics Summary
+For each coil stage, report a table with: R (Ω), L (µH), τ = L/R (µs),
+current pulse duration (µs), pulse/τ ratio, and I_peak = V_rail/R (A).
+Note which stages appear under-driven (pulse < τ) or over-driven (pulse > 3τ)
+and whether the data supports adjusting pulse duration toward the 1–3τ window.
+If coil ratings varied across runs, note whether velocity correlated better
+with raw pulse_us or with the pulse/τ ratio.
+
 ### Next Field Test Plan
 Specific parameter changes to try in the next testing session, designed to:
-- Explore under-tested parameters
+- Explore under-tested parameters (coil ratings that have only one value in the dataset are prime candidates for a coil swap experiment)
 - Refine parameters that show strong correlation with velocity
 - Test beyond the current best values to see if there's more headroom
 - Include at least 3-5 suggested runs with specific config values
+- When suggesting pulse duration changes, state the target pulse/τ ratio and the physics rationale
 
 ### Confidence Assessment
-For each recommendation, state your confidence (High/Medium/Low) and why. Flag any recommendations that are speculative vs. data-backed.
+For each recommendation, state your confidence (High/Medium/Low) and why. Flag any recommendations that are speculative vs. data-backed. Recommendations grounded in both statistical signal AND electromagnetic theory (e.g., "top-quartile profile favours shorter coil-2 pulse AND the current pulse/τ = 1.8 is in the expected sweet spot") deserve higher confidence than either signal alone.
 
 ## Step 4 — Save Results
 
@@ -72,6 +149,7 @@ For each recommendation, state your confidence (High/Medium/Low) and why. Flag a
    The report should include:
    - **Header**: date, dataset size (sequences, runs)
    - **Dataset Overview**: sequence summaries with velocity stats
+   - **Coil Electromagnetics Table**: per-stage R, L, τ, pulse duration, pulse/τ ratio, I_peak
    - **Feature Importance**: ranked table of parameters and their impact
    - **Config Change Impact Log**: what happened when specific knobs were turned
    - **Best Known Configuration**: table of parameter values
