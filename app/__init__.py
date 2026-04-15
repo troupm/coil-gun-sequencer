@@ -152,6 +152,24 @@ def _migrate_config_snapshots_schema() -> None:
                 )
 
 
+        # --- coil resistance & inductance ratings ---
+        _coil_rating_cols = {
+            "coil_1_resistance_ohms": 1.3,
+            "coil_1_inductance_uh": 476.0,
+            "coil_2_resistance_ohms": 2.8,
+            "coil_2_inductance_uh": 1900.0,
+            "coil_3_resistance_ohms": 5.0,
+            "coil_3_inductance_uh": 1000.0,
+        }
+        for col, default in _coil_rating_cols.items():
+            if col not in existing_cols:
+                conn.execute(text(
+                    f"ALTER TABLE config_snapshots "
+                    f"ADD COLUMN {col} REAL NOT NULL DEFAULT {default}"
+                ))
+                log.info("Added column config_snapshots.%s", col)
+
+
 def _load_initial_config(seq: Sequencer) -> None:
     """Load the most recent config snapshot, or seed with defaults."""
     latest = (

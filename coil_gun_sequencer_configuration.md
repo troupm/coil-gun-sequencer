@@ -65,6 +65,22 @@ resistors currently installed on the test rig.
 | `COIL_1_BRAKE_RESISTOR_OHMS` | `float` | `10.0` | Series brake resistor value (Ω) in coil 1's flyback module. |
 | `COIL_2_BRAKE_RESISTOR_OHMS` | `float` | `1.0` | Series brake resistor value (Ω) in coil 2's flyback module. |
 
+#### Coil electrical ratings (metadata only — not read by firing path)
+
+DC resistance and air-core inductance per coil stage. The L/R time-constant
+determines current rise-rate and peak magnetic field strength, both of which
+directly affect projectile velocity. Logged per-snapshot so the velocity
+analyser can correlate coil parameters with outcomes.
+
+| Constant | Type | Default | Description |
+|----------|------|---------|-------------|
+| `COIL_1_RESISTANCE_OHMS` | `float` | `1.3` | DC winding resistance (Ω) of coil 1. |
+| `COIL_1_INDUCTANCE_UH` | `float` | `476.0` | Air-core inductance (µH) of coil 1. |
+| `COIL_2_RESISTANCE_OHMS` | `float` | `2.8` | DC winding resistance (Ω) of coil 2. |
+| `COIL_2_INDUCTANCE_UH` | `float` | `1900.0` | Air-core inductance (µH) of coil 2. |
+| `COIL_3_RESISTANCE_OHMS` | `float` | `5.0` | DC winding resistance (Ω) of coil 3. |
+| `COIL_3_INDUCTANCE_UH` | `float` | `1000.0` | Air-core inductance (µH) of coil 3. |
+
 ### Database Schema
 | Table | Description |
 |-------|-------------|

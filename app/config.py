@@ -34,6 +34,15 @@ DEFAULTS = {
     # resistors currently installed on the rig.
     "coil_1_brake_resistor_ohms": 10.0,
     "coil_2_brake_resistor_ohms": 1.0,
+    # Coil electrical ratings (metadata only — not read by firing path).
+    # DC resistance (ohms) and air-core inductance (µH) per coil stage.
+    # L/R time-constant governs current rise and peak field strength.
+    "coil_1_resistance_ohms": 1.3,
+    "coil_1_inductance_uh": 476.0,
+    "coil_2_resistance_ohms": 2.8,
+    "coil_2_inductance_uh": 1900.0,
+    "coil_3_resistance_ohms": 5.0,
+    "coil_3_inductance_uh": 1000.0,
 }
 
 
