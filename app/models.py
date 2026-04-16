@@ -48,6 +48,17 @@ class ConfigSnapshot(db.Model):
     coil_1_brake_resistor_ohms = db.Column(db.Float, nullable=False, default=10.0)
     coil_2_brake_resistor_ohms = db.Column(db.Float, nullable=False, default=1.0)
 
+    # Coil electrical ratings (metadata only — not read by firing path).
+    # DC resistance (ohms) and air-core inductance (µH) per coil stage.
+    # These are statistically significant for velocity optimisation:
+    # L/R time-constant determines current rise and peak field strength.
+    coil_1_resistance_ohms = db.Column(db.Float, nullable=False, default=1.3)
+    coil_1_inductance_uh = db.Column(db.Float, nullable=False, default=476.0)
+    coil_2_resistance_ohms = db.Column(db.Float, nullable=False, default=2.8)
+    coil_2_inductance_uh = db.Column(db.Float, nullable=False, default=1900.0)
+    coil_3_resistance_ohms = db.Column(db.Float, nullable=False, default=5.0)
+    coil_3_inductance_uh = db.Column(db.Float, nullable=False, default=1000.0)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -68,6 +79,12 @@ class ConfigSnapshot(db.Model):
             "rail_source_active": self.rail_source_active,
             "coil_1_brake_resistor_ohms": self.coil_1_brake_resistor_ohms,
             "coil_2_brake_resistor_ohms": self.coil_2_brake_resistor_ohms,
+            "coil_1_resistance_ohms": self.coil_1_resistance_ohms,
+            "coil_1_inductance_uh": self.coil_1_inductance_uh,
+            "coil_2_resistance_ohms": self.coil_2_resistance_ohms,
+            "coil_2_inductance_uh": self.coil_2_inductance_uh,
+            "coil_3_resistance_ohms": self.coil_3_resistance_ohms,
+            "coil_3_inductance_uh": self.coil_3_inductance_uh,
         }
 
     # Parameter keys that map 1:1 to column names. All are numeric (float)
@@ -89,6 +106,12 @@ class ConfigSnapshot(db.Model):
         "rail_source_active",
         "coil_1_brake_resistor_ohms",
         "coil_2_brake_resistor_ohms",
+        "coil_1_resistance_ohms",
+        "coil_1_inductance_uh",
+        "coil_2_resistance_ohms",
+        "coil_2_inductance_uh",
+        "coil_3_resistance_ohms",
+        "coil_3_inductance_uh",
     ]
 
 

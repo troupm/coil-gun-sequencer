@@ -22,6 +22,12 @@
     'capacitor_bank_size_uf',
     'coil_1_brake_resistor_ohms',
     'coil_2_brake_resistor_ohms',
+    'coil_1_resistance_ohms',
+    'coil_1_inductance_uh',
+    'coil_2_resistance_ohms',
+    'coil_2_inductance_uh',
+    'coil_3_resistance_ohms',
+    'coil_3_inductance_uh',
   ];
   const RAIL_KEY = 'rail_source_active';
 
