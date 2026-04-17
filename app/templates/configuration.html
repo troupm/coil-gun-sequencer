@@ -15,6 +15,10 @@
       <label for="projectile_mass_grams">Mass (g)</label>
       <input type="number" id="projectile_mass_grams" step="0.01" min="0">
     </div>
+    <div class="cfg-field">
+      <label for="projectile_start_offset_mm">Start Offset (mm)</label>
+      <input type="number" id="projectile_start_offset_mm" step="0.5" min="0">
+    </div>
   </div>
 
   <div class="cfg-section">
@@ -72,8 +76,20 @@
   <div class="cfg-section">
     <h2>Power Source</h2>
     <div class="cfg-field">
-      <label for="capacitor_bank_size_uf">Capacitor Bank (&micro;F)</label>
+      <label for="capacitor_bank_size_uf">Capacitor Bank (&micro;F) <small>(shared/legacy)</small></label>
       <input type="number" id="capacitor_bank_size_uf" step="1" min="0">
+    </div>
+    <div class="cfg-field">
+      <label for="coil_1_capacitor_uf">Coil 1 Cap Bank (&micro;F)</label>
+      <input type="number" id="coil_1_capacitor_uf" step="100" min="0">
+    </div>
+    <div class="cfg-field">
+      <label for="coil_2_capacitor_uf">Coil 2 Cap Bank (&micro;F)</label>
+      <input type="number" id="coil_2_capacitor_uf" step="100" min="0">
+    </div>
+    <div class="cfg-field">
+      <label for="coil_3_capacitor_uf">Coil 3 Cap Bank (&micro;F)</label>
+      <input type="number" id="coil_3_capacitor_uf" step="100" min="0">
     </div>
     <div class="cfg-field cfg-field-check">
       <label for="rail_source_active">Rail Source Active</label>
@@ -118,6 +134,15 @@
     <div class="cfg-field">
       <label for="coil_3_inductance_uh">Coil 3 L (&micro;H)</label>
       <input type="number" id="coil_3_inductance_uh" step="1" min="0">
+    </div>
+  </div>
+
+  <div class="cfg-section">
+    <h2>Sequence Notes</h2>
+    <div class="cfg-field cfg-field-wide">
+      <textarea id="sequence_notes" rows="3"
+        placeholder="Out-of-band changes: coil rearrangements, sensor swaps, etc."></textarea>
+      <button class="btn btn-note-save" id="btn-save-notes">Save Notes</button>
     </div>
   </div>
 

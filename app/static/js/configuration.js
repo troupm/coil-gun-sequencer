@@ -22,6 +22,10 @@
     'capacitor_bank_size_uf',
     'coil_1_brake_resistor_ohms',
     'coil_2_brake_resistor_ohms',
+    'coil_1_capacitor_uf',
+    'coil_2_capacitor_uf',
+    'coil_3_capacitor_uf',
+    'projectile_start_offset_mm',
     'coil_1_resistance_ohms',
     'coil_1_inductance_uh',
     'coil_2_resistance_ohms',
@@ -132,5 +136,39 @@
   document.getElementById('btn-new-seq').addEventListener('click', async () => {
     const res = await apiPost('/sequence/new');
     statusEl.textContent = 'New sequence: ' + res.run_sequence_id.substring(0, 8);
+    // Clear the notes textarea for the new sequence
+    const notesEl = document.getElementById('sequence_notes');
+    if (notesEl) notesEl.value = '';
+  });
+
+  // ── Sequence notes ────────────────────────────────────────────────────
+
+  // Load notes for the current sequence on page load
+  (async function _loadNotes() {
+    try {
+      const res = await fetch('/api/sequence/notes');
+      if (res.ok) {
+        const data = await res.json();
+        const notesEl = document.getElementById('sequence_notes');
+        if (notesEl) notesEl.value = data.notes || '';
+      }
+    } catch (_) { /* silent */ }
+  })();
+
+  document.getElementById('btn-save-notes').addEventListener('click', async () => {
+    const notesEl = document.getElementById('sequence_notes');
+    if (!notesEl) return;
+    try {
+      const res = await fetch('/api/sequence/notes', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({notes: notesEl.value}),
+      });
+      if (res.ok) {
+        statusEl.textContent = 'Sequence notes saved';
+      }
+    } catch (e) {
+      statusEl.textContent = 'Notes save error: ' + e.message;
+    }
   });
 })();

@@ -20,6 +20,7 @@ their config rows still exist but their values have no effect on the rig.
 |----------|------|---------|-------------|
 | `PROJECTILE_LENGTH_MM` | `float` | `10.0` | Projectile length (mm). Used for transit-velocity calculations. |
 | `PROJECTILE_MASS_GRAMS` | `float` | `2.08` | Projectile mass (g). Metadata for kinetic-energy calculations. |
+| `PROJECTILE_START_OFFSET_MM` | `float` | `2.0` | Distance the projectile tip protrudes from the muzzle-facing end of Coil 1 at launch (mm). Metadata for analysis — determines initial coupling depth with coil 1 and affects push/pull mode physics. |
 
 #### Voltage thresholds
 
@@ -49,8 +50,11 @@ their config rows still exist but their values have no effect on the rig.
 
 | Constant | Type | Default | Description |
 |----------|------|---------|-------------|
-| `CAPACITOR_BANK_SIZE_UF` | `float` | `1000.0` | Installed capacitor bank size (µF). Logged per-snapshot so velocity analysis can correlate it. |
-| `RAIL_SOURCE_ACTIVE` | `float` | `0.0` | Effective rail voltage: `0.0` when the rail supply is off, `V_COIL_CEILING` when on. Stored as a continuous voltage (not boolean) so ML tooling gets a meaningful magnitude. The UI exposes it as a checkbox and fills the voltage on save. |
+| `CAPACITOR_BANK_SIZE_UF` | `float` | `1000.0` | Installed capacitor bank size (µF). Legacy shared-bank value; retained for backward compatibility with pre-split data. |
+| `COIL_1_CAPACITOR_UF` | `float` | `4000.0` | Coil 1 dedicated capacitor bank (µF). Each coil stage now has its own bank. |
+| `COIL_2_CAPACITOR_UF` | `float` | `4000.0` | Coil 2 dedicated capacitor bank (µF). |
+| `COIL_3_CAPACITOR_UF` | `float` | `4000.0` | Coil 3 dedicated capacitor bank (µF). |
+| `RAIL_SOURCE_ACTIVE` | `float` | `0.0` | Effective rail voltage: `0.0` when the rail supply is off, `V_COIL_CEILING` when on. Also serves as a regime marker: `True` = dedicated per-coil cap banks (current), `False` = one shared bank (legacy). Stored as a continuous voltage for ML friendliness; the UI exposes it as a checkbox. |
 
 #### Flyback / brake modules (metadata only — not read by firing path)
 
@@ -81,11 +85,33 @@ analyser can correlate coil parameters with outcomes.
 | `COIL_3_RESISTANCE_OHMS` | `float` | `5.0` | DC winding resistance (Ω) of coil 3. |
 | `COIL_3_INDUCTANCE_UH` | `float` | `1000.0` | Air-core inductance (µH) of coil 3. |
 
+### Sequence Notes
+
+One free-text note per run sequence, stored in the `sequence_notes` table.
+Captures out-of-band changes to the test setup (coil rearrangements, sensor
+swaps, push-vs-pull mode changes, etc.) that don't map to a config parameter
+but are essential context for velocity analysis. Editable on the Configuration
+page; included in `/optimize-coil-gun-velocity` analysis output.
+
+### Oscilloscope Traces
+
+Oscilloscope capture images (JPG/PNG) can be associated with a sequence by
+placing them in `data/sequence_traces/`. Files are matched to sequences by
+the first 8 characters of the filename (the sequence ID prefix):
+
+    data/sequence_traces/a08101f0_coil2_pulse.jpg  →  sequence a08101f0-...
+    data/sequence_traces/a08101f0_overview.png      →  sequence a08101f0-...
+
+The analysis script scans this directory and includes matching trace paths in
+the `sequence_summaries[].oscilloscope_traces` output field. Images can be
+added after the fact on a PC prior to running `/optimize-coil-gun-velocity`.
+
 ### Database Schema
 | Table | Description |
 |-------|-------------|
 | `config_snapshots` | Configuration values and constants |
 | `event_logs` | Discrete events (coil activations, gate triggers, etc.) |
+| `sequence_notes` | Free-text notes per run sequence |
 
 ### Events to be logged
 

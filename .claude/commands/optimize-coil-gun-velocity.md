@@ -10,7 +10,7 @@ python tools/analyze_velocity.py --limit 5
 
 This queries the SQLite database (`data/sequencer.db`) and outputs JSON containing:
 - **dataset_summary**: sequence/run counts plus `primary_velocity_metric` (the metric with the most coverage after filtering — usually what you should anchor recommendations on)
-- **sequence_summaries**: per-sequence velocity statistics (min/max/avg/stdev) on the **unfiltered** data, so the operator sees what their session actually looked like
+- **sequence_summaries**: per-sequence velocity statistics (min/max/avg/stdev) on the **unfiltered** data, so the operator sees what their session actually looked like. May include `notes` (operator free-text about out-of-band setup changes) and `oscilloscope_traces` (file paths to scope capture images in `data/sequence_traces/`). **Always include sequence notes in your analysis** — they provide critical context about regime changes (e.g., push-vs-pull mode, coil swaps) that cannot be inferred from config params alone.
 - **outlier_filter_summary**: per-metric counts of runs dropped as low outliers (mechanical failures) and kept-but-flagged as high outliers (candidate wins) using a trailing-10 rolling Tukey-IQR fence, asymmetric. Only runs on sequences with ≥10 samples.
 - **top_quartile_profiles** ⭐ **primary analysis input**: for each velocity metric, partitions the filtered runs into top-25% vs rest and reports per-parameter mean-shift and t-statistic, ranked by |t|. Effectively a one-step gradient-boosted stump per feature. This is far more noise-tolerant than Pearson r on a ~33% CV rig and should drive most of your reasoning.
 - **correlations**: Pearson r between each config param and each velocity metric (on filtered data). Retained for reference but **prefer top_quartile_profiles** — linear correlation badly undersells non-monotonic relationships and gets dominated by the slow/mediocre bulk of runs.
@@ -62,6 +62,24 @@ because they govern the magnetic-force pulse shape.
   determine I_coil at turn-off, so brake-resistor analysis must consider the
   coil ratings together.
 
+- **Per-coil capacitor banks:** Each coil stage has its own dedicated
+  capacitor bank (`coil_N_capacitor_uf`). The legacy `capacitor_bank_size_uf`
+  field represents the old shared-bank configuration. `rail_source_active`
+  serves as a regime marker: `False` = one shared bank (legacy),
+  `True` = dedicated per-coil banks (current). The stored energy per stage
+  is `E = ½ × C × V²`. A larger per-coil bank means V_rail sags less during
+  the pulse, maintaining higher peak current for longer. When analysing
+  runs that span the shared→dedicated transition, note which regime each
+  run belongs to.
+
+- **Projectile start offset:** `projectile_start_offset_mm` is the distance
+  the projectile tip protrudes from the muzzle-facing end of Coil 1 at
+  launch. This determines the initial magnetic coupling: a deeper insertion
+  (smaller offset) means the projectile starts closer to the coil's field
+  centre, which in push mode means less initial push distance. In pull mode
+  it meant stronger initial pull. This interacts with coil 1 pulse duration
+  — a projectile starting further out needs more time to traverse the bore.
+
 ### How to use in analysis
 
 When interpreting correlations and top-quartile profiles:
@@ -106,7 +124,9 @@ Analyze the JSON output and reason about, **in this priority order**:
 
 6. **Under-explored Parameters**: Which parameters have only been tested at 1-2 unique values in `param_ranges`? These are opportunities for the next field test.
 
-7. **Sequence Trend**: Are average velocities improving across sequences, plateauing, or regressing? Compare against the historical entries in `velocity_optimization_history.md` to see the longer arc.
+7. **Sequence Notes & Traces**: Read any `notes` fields in the sequence summaries — they contain operator commentary about out-of-band changes (coil rearrangements, push/pull mode changes, sensor swaps) that fundamentally affect how the data should be interpreted. If `oscilloscope_traces` paths are present, note them in the report so the operator can cross-reference scope captures with the statistical analysis.
+
+8. **Sequence Trend**: Are average velocities improving across sequences, plateauing, or regressing? Compare against the historical entries in `velocity_optimization_history.md` to see the longer arc.
 
 ## Step 3 — Generate Recommendations
 
@@ -148,7 +168,7 @@ For each recommendation, state your confidence (High/Medium/Low) and why. Flag a
 
    The report should include:
    - **Header**: date, dataset size (sequences, runs)
-   - **Dataset Overview**: sequence summaries with velocity stats
+   - **Dataset Overview**: sequence summaries with velocity stats, including any sequence notes and oscilloscope trace references
    - **Coil Electromagnetics Table**: per-stage R, L, τ, pulse duration, pulse/τ ratio, I_peak
    - **Feature Importance**: ranked table of parameters and their impact
    - **Config Change Impact Log**: what happened when specific knobs were turned
