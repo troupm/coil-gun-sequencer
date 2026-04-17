@@ -22,7 +22,10 @@
       "Bash(python -c \"import sys,json; print\\('Final state:', json.load\\(sys.stdin\\)['state']\\)\")",
       "Bash(python:*)",
       "Bash(ls:*)",
-      "Bash(pip install *)"
+      "Bash(pip install *)",
+      "Bash(python tools/analyze_velocity.py --limit 5)",
+      "Bash(echo \"exit=$?\")",
+      "Read(//tmp/**)"
     ]
   }
 }

@@ -34,9 +34,13 @@ file to match, don't the other way round.
 
 ## Timing / hardware ground truth
 
-- Gate inputs: **falling edge = leading edge** (beam break). Rising = trailing
-  edge (beam restored). The original spec's event-log descriptions had
-  rising/falling swapped — the code is correct, the old text was wrong.
+- Gate inputs: **idle LOW, active HIGH**. Beam break drives the line HIGH
+  (rising edge = leading edge); beam restore falls back to LOW (falling
+  edge = trailing edge). Polarity was flipped on 2026-04-16 after
+  replacing the mismatched gate 1 sensor — prior to that, gate 1 was
+  idle-HIGH and gate 2 was idle-LOW and 93 %+ of persisted runs had
+  negative `gate_N_transit_us`. The spec file may still describe the
+  old convention; the code is correct.
 - `GATE_1_COIL_2_DELAY_US` — gate 1 fires coil **2** (not coil 1)
 - `GATE_2_COIL_3_DELAY_US` — gate 2 fires coil 3
 - `COIL_3_PULSE_DURATION_US` — exists in code, was missing from original spec

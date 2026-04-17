@@ -34,6 +34,15 @@ DEFAULTS = {
     # resistors currently installed on the rig.
     "coil_1_brake_resistor_ohms": 10.0,
     "coil_2_brake_resistor_ohms": 1.0,
+    # Per-coil capacitor banks (metadata only — not read by firing path).
+    # Each coil stage has its own dedicated bank. rail_source_active
+    # indicates the transition: False = one shared bank, True = dedicated.
+    "coil_1_capacitor_uf": 4000.0,
+    "coil_2_capacitor_uf": 4000.0,
+    "coil_3_capacitor_uf": 4000.0,
+    # Projectile starting position: how far the projectile tip protrudes
+    # from the muzzle-facing end of Coil 1 at launch (mm). Metadata only.
+    "projectile_start_offset_mm": 2.0,
     # Coil electrical ratings (metadata only — not read by firing path).
     # DC resistance (ohms) and air-core inductance (µH) per coil stage.
     # L/R time-constant governs current rise and peak field strength.

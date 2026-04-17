@@ -8,7 +8,7 @@ from collections import defaultdict
 from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 
-from app.models import db, ConfigSnapshot, EventLog
+from app.models import db, ConfigSnapshot, EventLog, SequenceNote
 
 log = logging.getLogger(__name__)
 
@@ -169,6 +169,37 @@ def get_sequence():
     })
 
 
+# ── Sequence notes ─────────────────────────────────────────────────────
+
+@api_bp.route("/sequence/notes", methods=["GET"])
+def get_sequence_notes():
+    """Return the note for the current sequence (or empty string)."""
+    seq_id = _seq().run_sequence_id
+    note = SequenceNote.query.filter_by(run_sequence_id=seq_id).first()
+    return jsonify({
+        "run_sequence_id": seq_id,
+        "notes": note.notes if note else "",
+    })
+
+
+@api_bp.route("/sequence/notes", methods=["PUT"])
+def update_sequence_notes():
+    """Create or update the note for the current sequence."""
+    seq_id = _seq().run_sequence_id
+    payload = request.get_json(force=True)
+    text_val = str(payload.get("notes", "")).strip()
+
+    note = SequenceNote.query.filter_by(run_sequence_id=seq_id).first()
+    if note:
+        note.notes = text_val
+    else:
+        note = SequenceNote(run_sequence_id=seq_id, notes=text_val)
+        db.session.add(note)
+    db.session.commit()
+    log.info("Updated sequence notes for %s", seq_id[:8])
+    return jsonify(note.to_dict())
+
+
 # ── History ─────────────────────────────────────────────────────────────
 
 @api_bp.route("/history")
@@ -223,15 +254,19 @@ def _compute_run_velocities(ev, cfg):
     stats = {}
     proj_len = cfg.projectile_length_mm
 
+    # See app/sequencer.py:compute_stats for the abs()/10-µs rationale —
+    # pre-2026-04-16 rows have off<on (gate polarity was inverted) and
+    # magnitude is the real transit duration, so we salvage them via
+    # abs() while keeping the signed `_us` field visible to the UI.
     for g in (1, 2, 3):
         on = getattr(ev, f"t_gate_{g}_on")
         off = getattr(ev, f"t_gate_{g}_off")
         if on is not None and off is not None:
             transit_us = (off - on) / 1_000.0
             stats[f"gate_{g}_transit_us"] = round(transit_us, 2)
-            if transit_us > 0:
+            if abs(transit_us) >= 10.0:
                 stats[f"gate_{g}_transit_velocity_ms"] = round(
-                    proj_len * 1_000.0 / transit_us, 3
+                    proj_len * 1_000.0 / abs(transit_us), 3
                 )
 
     pairs = [
@@ -266,7 +301,7 @@ def _trend(cur, prev):
 
 @api_bp.route("/sequences")
 def list_sequences():
-    """All unique sequences with run count and time range."""
+    """All unique sequences with run count, time range, and notes."""
     rows = (
         db.session.query(
             EventLog.run_sequence_id,
@@ -278,12 +313,22 @@ def list_sequences():
         .order_by(func.max(EventLog.created_at).desc())
         .all()
     )
+    # Pre-load all sequence notes in one query
+    seq_ids = [r.run_sequence_id for r in rows]
+    notes_map = {}
+    if seq_ids:
+        for sn in SequenceNote.query.filter(
+            SequenceNote.run_sequence_id.in_(seq_ids)
+        ).all():
+            notes_map[sn.run_sequence_id] = sn.notes
+
     return jsonify([
         {
             "run_sequence_id": r.run_sequence_id,
             "run_count": r.run_count,
             "first_run": r.first_run.isoformat() if r.first_run else None,
             "last_run": r.last_run.isoformat() if r.last_run else None,
+            "notes": notes_map.get(r.run_sequence_id, ""),
         }
         for r in rows
     ])

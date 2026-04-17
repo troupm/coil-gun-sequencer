@@ -48,6 +48,18 @@ class ConfigSnapshot(db.Model):
     coil_1_brake_resistor_ohms = db.Column(db.Float, nullable=False, default=10.0)
     coil_2_brake_resistor_ohms = db.Column(db.Float, nullable=False, default=1.0)
 
+    # Per-coil capacitor banks (metadata only — not read by firing path).
+    # Each coil stage has its own dedicated capacitor bank.
+    # rail_source_active indicates the transition point: False = one shared
+    # bank (legacy), True = dedicated per-coil banks.
+    coil_1_capacitor_uf = db.Column(db.Float, nullable=False, default=4000.0)
+    coil_2_capacitor_uf = db.Column(db.Float, nullable=False, default=4000.0)
+    coil_3_capacitor_uf = db.Column(db.Float, nullable=False, default=4000.0)
+
+    # Projectile starting position: distance the projectile tip protrudes
+    # from the muzzle-facing end of Coil 1 at launch (mm). Metadata only.
+    projectile_start_offset_mm = db.Column(db.Float, nullable=False, default=2.0)
+
     # Coil electrical ratings (metadata only — not read by firing path).
     # DC resistance (ohms) and air-core inductance (µH) per coil stage.
     # These are statistically significant for velocity optimisation:
@@ -79,6 +91,10 @@ class ConfigSnapshot(db.Model):
             "rail_source_active": self.rail_source_active,
             "coil_1_brake_resistor_ohms": self.coil_1_brake_resistor_ohms,
             "coil_2_brake_resistor_ohms": self.coil_2_brake_resistor_ohms,
+            "coil_1_capacitor_uf": self.coil_1_capacitor_uf,
+            "coil_2_capacitor_uf": self.coil_2_capacitor_uf,
+            "coil_3_capacitor_uf": self.coil_3_capacitor_uf,
+            "projectile_start_offset_mm": self.projectile_start_offset_mm,
             "coil_1_resistance_ohms": self.coil_1_resistance_ohms,
             "coil_1_inductance_uh": self.coil_1_inductance_uh,
             "coil_2_resistance_ohms": self.coil_2_resistance_ohms,
@@ -106,6 +122,10 @@ class ConfigSnapshot(db.Model):
         "rail_source_active",
         "coil_1_brake_resistor_ohms",
         "coil_2_brake_resistor_ohms",
+        "coil_1_capacitor_uf",
+        "coil_2_capacitor_uf",
+        "coil_3_capacitor_uf",
+        "projectile_start_offset_mm",
         "coil_1_resistance_ohms",
         "coil_1_inductance_uh",
         "coil_2_resistance_ohms",
@@ -167,3 +187,33 @@ class EventLog(db.Model):
         for f in self.TIMESTAMP_FIELDS:
             d[f] = getattr(self, f)
         return d
+
+
+class SequenceNote(db.Model):
+    """Free-text note attached to a run sequence.
+
+    One note per sequence, capturing out-of-band changes to the test
+    setup (coil rearrangements, sensor swaps, etc.) that don't map to a
+    config parameter but are essential context for velocity analysis.
+    """
+    __tablename__ = "sequence_notes"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    run_sequence_id = db.Column(
+        db.String(36), nullable=False, unique=True, index=True
+    )
+    notes = db.Column(db.Text, nullable=False, default="")
+    created_at = db.Column(
+        db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at = db.Column(
+        db.DateTime, nullable=False, default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    def to_dict(self):
+        return {
+            "run_sequence_id": self.run_sequence_id,
+            "notes": self.notes,
+            "updated_at": self.updated_at.isoformat(),
+        }

@@ -7,6 +7,64 @@ rather than deleting — the history is the point.
 
 ---
 
+## 2026-04-16 — Mismatched gate sensor polarity produced negative transit times
+
+**Symptom:** `gate_1_transit_us` and `gate_2_transit_us` were negative on
+~95 % of persisted runs — 427/443 for gate 1 and 372/399 for gate 2.
+Because `compute_stats` only emitted a `gate_N_transit_velocity_ms` when
+`transit_us > 0`, per-gate transit velocity was silently missing from
+almost every row, and the velocity-optimisation analysis had to fall back
+on flight-time-only metrics.
+
+**Cause:** Two things stacked:
+
+1. The sequencer assumed *idle-HIGH* gate sensors (`pull_up=True` with
+   falling edge = beam break). Gate 2's actual sensor was idle-LOW
+   (rising edge = beam break). Operator belief about idle state didn't
+   match what the GPIO pin saw.
+2. Gates 1 and 2 were different sensor types — but the operator only
+   checked one with a multimeter and assumed both matched. Once gate 1
+   was replaced with the gate-2 type, **both** gates started producing
+   negative transit times; that simultaneous flip is what confirmed the
+   polarity diagnosis.
+
+**Fix:**
+
+- `app/sequencer.py`: registered `_on_gate_leading` on the `"rising"`
+  callback and `_on_gate_trailing` on `"falling"` — beam-break is now
+  correctly read as the rising edge.
+- `app/hardware/real.py`: `pull_up=False` on the gate inputs, and the
+  `when_activated`/`when_deactivated` mapping swapped so the `"rising"`
+  and `"falling"` strings still name the physical edge direction.
+- `app/hardware/mock.py`: beam-break simulation now fires the `"rising"`
+  callback (was `"falling"`) so the test cascade mirrors real hardware.
+- `compute_stats` and `_compute_run_velocities` now use
+  `abs(transit_us)` with a 10-µs noise floor, so the 800+ historic rows
+  with negative transit unlock their `gate_N_transit_velocity_ms`
+  metric for analysis. Signed `_us` stays so an analyst can still see
+  which rows were recorded under the old polarity.
+- Added
+  `test_gate_transit_is_positive_after_beam_break_then_restore` to pin
+  down the convention; it drives the full mock cascade and asserts
+  `off > on` on all three gates.
+
+**Rules:**
+
+1. When swapping a sensor, **always verify polarity with a scope on the
+   GPIO header pin itself**, not the sensor board's output — any
+   buffering/inversion between them can silently flip the signal the Pi
+   actually sees.
+2. If more than one sensor of the "same role" is installed, confirm all
+   of them are the same type *and* idle-state before trusting either.
+3. Asymmetry across gates (e.g. gate 1 behaving differently from gate 2)
+   is a polarity-mismatch signal, not run-to-run noise.
+4. For any bi-directional edge event: if operator belief and persisted
+   data disagree on which direction is "normal", trust the persisted
+   data. A 95 % sign-inversion rate across hundreds of runs is not
+   noise.
+
+---
+
 ## 2026-04-12 — Sensor bounce double-fired coil 2
 
 **Symptom:** Coil 2 energised multiple times per test run on hardware, even

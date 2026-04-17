@@ -83,6 +83,11 @@ def compute_stats(run: RunData, cfg: dict) -> dict:
     proj_len_mm = cfg["projectile_length_mm"]
 
     # --- Gate transit times (trailing - leading = beam-break duration) ----
+    # Rows from before the 2026-04-16 polarity fix have off < on (negative
+    # transit); magnitude is still the real beam-break duration. Use abs()
+    # for the velocity computation so those rows salvage-decode cleanly,
+    # but keep the signed `_us` field so an operator/analyst can still see
+    # the inversion. A lower bound filters out sub-10-µs noise/glitches.
     for g in (1, 2, 3):
         on = ts.get(f"t_gate_{g}_on")
         off = ts.get(f"t_gate_{g}_off")
@@ -90,9 +95,9 @@ def compute_stats(run: RunData, cfg: dict) -> dict:
             transit_ns = off - on
             transit_us = _ns_to_us(transit_ns)
             stats[f"gate_{g}_transit_us"] = round(transit_us, 2)
-            if transit_us > 0:
+            if abs(transit_us) >= 10.0:
                 # velocity = length / time  →  (mm/1000) / (µs/1e6) = mm*1000/µs
-                vel = proj_len_mm * 1_000.0 / transit_us
+                vel = proj_len_mm * 1_000.0 / abs(transit_us)
                 stats[f"gate_{g}_transit_velocity_ms"] = round(vel, 3)
 
     # --- Flight times (leading edge to leading edge between adjacent gates)
@@ -360,8 +365,12 @@ class Sequencer:
             def _on_trailing(gn=gate_num, g=gen):
                 self._on_gate_trailing(gn, g)
 
-            self.hw.register_gate_callback(gate_num, "falling", _on_leading)
-            self.hw.register_gate_callback(gate_num, "rising", _on_trailing)
+            # Gates are idle-LOW active-HIGH: beam-break drives the line HIGH
+            # (rising edge = leading), beam-restore lets it fall back to LOW
+            # (falling edge = trailing). See .claude/lessons-learned.md
+            # 2026-04-16 for how this was diagnosed.
+            self.hw.register_gate_callback(gate_num, "rising", _on_leading)
+            self.hw.register_gate_callback(gate_num, "falling", _on_trailing)
 
     def _on_gate_leading(self, gate_num: int, gen: int) -> None:
         """Handle beam-break leading edge (falling edge on GPIO).

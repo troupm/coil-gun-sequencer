@@ -58,6 +58,10 @@
     'gate_2_to_gate_3_distance_mm':'G2\u2192G3 Dist',
     'capacitor_bank_size_uf':      'Cap Bank',
     'rail_source_active':          'Rail Src',
+    'coil_1_capacitor_uf':         'C1 Cap',
+    'coil_2_capacitor_uf':         'C2 Cap',
+    'coil_3_capacitor_uf':         'C3 Cap',
+    'projectile_start_offset_mm':  'Start Offset',
   };
 
   // ── DOM refs ───────────────────────────────────────────────────────────
