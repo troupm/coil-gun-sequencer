@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Manual{% endblock %}
+{% block nav_manual %}active{% endblock %}
+
+{% block content %}
+<div class="manual-layout">
+
+  <!-- Top row: lifecycle + state -->
+  <div class="manual-lifecycle">
+    <div class="state-indicator" id="state-indicator">
+      <span class="state-label" id="state-label">--</span>
+    </div>
+    <button class="btn btn-arm"   id="btn-arm"   disabled>ARM</button>
+    <button class="btn btn-save"  id="btn-save"  disabled>SAVE</button>
+    <button class="btn btn-clear" id="btn-clear" disabled>CLEAR</button>
+  </div>
+
+  <!-- Component tests: coil fires (independent) -->
+  <div class="manual-section">
+    <h2>Coil Fires (independent)</h2>
+    <p class="manual-hint">
+      Energises the coil immediately for <code>coil_N_pulse_duration_us</code>.
+      No gate cascade. Arm first.
+    </p>
+    <div class="manual-btn-row">
+      <button class="btn btn-fire manual-btn" id="btn-coil-2" disabled>
+        FIRE COIL 2
+      </button>
+      <button class="btn btn-fire manual-btn" id="btn-coil-3" disabled>
+        FIRE COIL 3
+      </button>
+    </div>
+  </div>
+
+  <!-- Component tests: simulated gate triggers -->
+  <div class="manual-section">
+    <h2>Gate Triggers (simulated, 500 µs transit)</h2>
+    <p class="manual-hint">
+      Drives the same code path as a real beam-break. Gate 1 fires coil 2
+      after <code>gate_1_coil_2_delay_us</code>; gate 2 fires coil 3 after
+      <code>gate_2_coil_3_delay_us</code>.
+    </p>
+    <div class="manual-btn-row">
+      <button class="btn btn-arm manual-btn" id="btn-gate-1" disabled>
+        SIMULATE GATE 1
+      </button>
+      <button class="btn btn-arm manual-btn" id="btn-gate-2" disabled>
+        SIMULATE GATE 2
+      </button>
+    </div>
+  </div>
+
+  <!-- Run info / last timestamps -->
+  <div class="manual-section">
+    <h2>Event Timestamps</h2>
+    <table class="stats-table" id="manual-ts-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>ON (µs)</th>
+          <th>OFF (µs)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="row-label">Coil 1</td>
+          <td id="t-coil-1-on">--</td>
+          <td id="t-coil-1-off">--</td>
+        </tr>
+        <tr>
+          <td class="row-label">Coil 2</td>
+          <td id="t-coil-2-on">--</td>
+          <td id="t-coil-2-off">--</td>
+        </tr>
+        <tr>
+          <td class="row-label">Coil 3</td>
+          <td id="t-coil-3-on">--</td>
+          <td id="t-coil-3-off">--</td>
+        </tr>
+        <tr>
+          <td class="row-label">Gate 1</td>
+          <td id="t-gate-1-on">--</td>
+          <td id="t-gate-1-off">--</td>
+        </tr>
+        <tr>
+          <td class="row-label">Gate 2</td>
+          <td id="t-gate-2-on">--</td>
+          <td id="t-gate-2-off">--</td>
+        </tr>
+        <tr>
+          <td class="row-label">Gate 3</td>
+          <td id="t-gate-3-on">--</td>
+          <td id="t-gate-3-off">--</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="run-info">
+      <span id="run-info-text">Sequence: -- | Run: --</span>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/manual.js') }}"></script>
+{% endblock %}

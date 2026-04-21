@@ -8,3 +8,9 @@ ts_bp = Blueprint("touchscreen", __name__)
 @ts_bp.route("/")
 def index():
     return render_template("touchscreen.html")
+
+
+@ts_bp.route("/manual")
+def manual():
+    """Manual component-test page — independent coil fires + simulated gates."""
+    return render_template("manual.html")

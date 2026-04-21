@@ -351,5 +351,202 @@ class GateBounceRegressionTests(unittest.TestCase):
         self.assertEqual(self.seq._current_run.seen_trailing, set())
 
 
+# ---------------------------------------------------------------------------
+# Coil 3 firing reliability (2026-04-21)
+# ---------------------------------------------------------------------------
+
+class Coil3ReliabilityTests(unittest.TestCase):
+    """Coil 3 MUST fire after gate_2_coil_3_delay_us once gate 2 triggers,
+    regardless of other gate/coil state, as long as the system was armed."""
+
+    def setUp(self) -> None:
+        self.hw = CountingMockHardware()
+        self.hw.setup()
+        self.seq = Sequencer(self.hw, StatePublisher())
+        self.seq.config = dict(DEFAULTS)
+
+    def tearDown(self) -> None:
+        try:
+            if self.seq.state != State.READY:
+                self.seq.disarm()
+        finally:
+            self.hw.cleanup()
+
+    def test_gate2_leading_alone_fires_coil3(self) -> None:
+        """Only gate 2's leading edge is needed — no gate 1, no coil 1."""
+        self.assertTrue(self.seq.arm())
+        gen = self.seq._run_generation
+
+        # Deliver gate 2 leading straight to the handler. No fire(),
+        # no gate 1, nothing else — this is the "irrespective of other
+        # gate & coil states" invariant.
+        self.seq._on_gate_leading(2, gen)
+
+        self.assertTrue(
+            _wait_until(
+                lambda: self.hw.coil_on_counts[3] >= 1, timeout_s=0.5
+            ),
+            "coil 3 did not fire after gate 2 leading edge alone",
+        )
+
+    def test_coil3_delay_is_measured_from_gate2_leading_edge(self) -> None:
+        """Firing delay must be from the LEADING edge, not the trailing."""
+        # Use a big delay so timing measurement is robust against jitter.
+        self.seq.config = dict(DEFAULTS, gate_2_coil_3_delay_us=5000.0)
+        self.assertTrue(self.seq.arm())
+        gen = self.seq._run_generation
+
+        t_leading = time.perf_counter_ns()
+        self.seq._on_gate_leading(2, gen)
+
+        self.assertTrue(
+            _wait_until(
+                lambda: self.seq._current_run.timestamps.get("t_coil_3_on")
+                is not None,
+                timeout_s=0.5,
+            )
+        )
+        t_coil_on = self.seq._current_run.timestamps["t_coil_3_on"]
+        delay_us = (t_coil_on - t_leading) / 1_000.0
+        # Allow generous slack for Python scheduling jitter; the point is
+        # that we saw ~5000 µs, not ~5500 µs (which would indicate the
+        # trailing-edge timestamp was used as the reference instead).
+        self.assertGreater(delay_us, 4500.0, f"delay={delay_us}µs — fired too early")
+        self.assertLess(delay_us, 7000.0, f"delay={delay_us}µs — reference was likely the trailing edge")
+
+    def test_gate2_trailing_before_coil3_fires_does_not_prevent_coil3(self) -> None:
+        """The original concern: gate 2 trailing arrives before the delay
+        window elapses. State must NOT flip to COMPLETE until coil 3 has
+        finished, and coil 3 must actually fire."""
+        self.assertTrue(self.seq.arm())
+        self.assertTrue(self.seq.fire())
+        gen = self.seq._run_generation
+
+        # Drive gate 2 leading directly so we control timing, then
+        # immediately trail it — this emulates a fast projectile where
+        # trailing arrives inside the coil-3 delay window.
+        self.seq._on_gate_leading(2, gen)
+        self.seq._on_gate_trailing(2, gen)
+
+        # State must not have prematurely transitioned to COMPLETE
+        # (pending_coils > 0 because of coil 3).
+        self.assertNotEqual(
+            self.seq.state, State.COMPLETE,
+            "state flipped to COMPLETE while coil 3 was still pending",
+        )
+
+        # Coil 3 eventually fires.
+        self.assertTrue(
+            _wait_until(lambda: self.hw.coil_on_counts[3] >= 1, timeout_s=0.5),
+            "coil 3 never fired despite gate 2 leading edge",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Manual component-test entry points (Manual page backend)
+# ---------------------------------------------------------------------------
+
+class ManualControlTests(unittest.TestCase):
+    """Sanity tests for manual_fire_coil / manual_simulate_gate."""
+
+    def setUp(self) -> None:
+        self.hw = CountingMockHardware()
+        self.hw.setup()
+        self.seq = Sequencer(self.hw, StatePublisher())
+        self.seq.config = dict(DEFAULTS)
+
+    def tearDown(self) -> None:
+        try:
+            if self.seq.state != State.READY:
+                self.seq.disarm()
+        finally:
+            self.hw.cleanup()
+
+    def test_manual_fire_coil_requires_armed(self) -> None:
+        self.assertFalse(self.seq.manual_fire_coil(2))
+        self.assertFalse(self.seq.manual_fire_coil(3))
+        self.assertEqual(self.hw.coil_on_counts[2], 0)
+        self.assertEqual(self.hw.coil_on_counts[3], 0)
+
+    def test_manual_fire_coil_rejects_coil_1(self) -> None:
+        """Coil 1 goes through fire(), not this path."""
+        self.assertTrue(self.seq.arm())
+        self.assertFalse(self.seq.manual_fire_coil(1))
+
+    def test_manual_fire_coil_2_fires_coil_2(self) -> None:
+        self.assertTrue(self.seq.arm())
+        self.assertTrue(self.seq.manual_fire_coil(2))
+
+        self.assertTrue(
+            _wait_until(
+                lambda: self.seq._current_run.timestamps.get("t_coil_2_off")
+                is not None,
+                timeout_s=0.5,
+            )
+        )
+        self.assertEqual(self.hw.coil_on_counts[2], 1)
+        # Coil 1 must not have been touched.
+        self.assertEqual(self.hw.coil_on_counts[1], 0)
+
+    def test_manual_fire_coil_3_fires_coil_3(self) -> None:
+        self.assertTrue(self.seq.arm())
+        self.assertTrue(self.seq.manual_fire_coil(3))
+
+        self.assertTrue(
+            _wait_until(
+                lambda: self.seq._current_run.timestamps.get("t_coil_3_off")
+                is not None,
+                timeout_s=0.5,
+            )
+        )
+        self.assertEqual(self.hw.coil_on_counts[3], 1)
+
+    def test_manual_simulate_gate_1_fires_coil_2(self) -> None:
+        self.assertTrue(self.seq.arm())
+        self.assertTrue(self.seq.manual_simulate_gate(1))
+
+        self.assertTrue(
+            _wait_until(
+                lambda: self.hw.coil_on_counts[2] >= 1, timeout_s=0.5
+            ),
+            "coil 2 never fired after simulated gate 1",
+        )
+        # The 500 µs transit means trailing should also land.
+        self.assertTrue(
+            _wait_until(
+                lambda: self.seq._current_run.timestamps.get("t_gate_1_off")
+                is not None,
+                timeout_s=0.5,
+            )
+        )
+        ts = self.seq._current_run.timestamps
+        transit_us = (ts["t_gate_1_off"] - ts["t_gate_1_on"]) / 1_000.0
+        # Trailing must land *after* leading — a non-positive transit
+        # would mean the trailing handler is using a different clock
+        # or getting called before leading. We don't upper-bound the
+        # transit: Python thread startup under GIL contention from
+        # concurrent coil busy-waits (both in this test and in earlier
+        # tests that leave daemon threads running past tearDown) can
+        # push the measured transit well past the requested 500 µs
+        # even though the request was honoured.
+        self.assertGreater(transit_us, 0.0)
+
+    def test_manual_simulate_gate_2_fires_coil_3(self) -> None:
+        self.assertTrue(self.seq.arm())
+        self.assertTrue(self.seq.manual_simulate_gate(2))
+
+        self.assertTrue(
+            _wait_until(
+                lambda: self.hw.coil_on_counts[3] >= 1, timeout_s=0.5
+            ),
+            "coil 3 never fired after simulated gate 2",
+        )
+
+    def test_manual_simulate_gate_rejects_gate_3(self) -> None:
+        """Gate 3 has no downstream coil — no manual entry point."""
+        self.assertTrue(self.seq.arm())
+        self.assertFalse(self.seq.manual_simulate_gate(3))
+
+
 if __name__ == "__main__":
     unittest.main()

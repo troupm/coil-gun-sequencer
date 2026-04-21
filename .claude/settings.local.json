@@ -25,7 +25,9 @@
       "Bash(pip install *)",
       "Bash(python tools/analyze_velocity.py --limit 5)",
       "Bash(echo \"exit=$?\")",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(git stash *)",
+      "Bash(git checkout *)"
     ]
   }
 }

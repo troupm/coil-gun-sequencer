@@ -59,6 +59,21 @@ class RunData:
     # Mutated only while the Sequencer's _lock is held.
     seen_leading: set = field(default_factory=set)
     seen_trailing: set = field(default_factory=set)
+    # Count of coil pulses that have been scheduled but have not yet
+    # finished their OFF phase. Incremented when a pulse is scheduled
+    # (fire / gate-leading / manual fire); decremented when the pulse
+    # thread turns the coil OFF. The run is not "complete" while any
+    # coil is still mid-pulse — without this counter, a gate-2 trailing
+    # edge that arrived before gate 3 was reached would flip state to
+    # COMPLETE during the gate_2_coil_3_delay_us window, and any
+    # downstream save/disarm could interrupt coil 3 before it fired.
+    pending_coils: int = 0
+    # Set True by a gate-trailing event that *would* normally complete
+    # the run (gate 3 trailing, or all triggered gates trailed). The
+    # actual FIRING → COMPLETE transition is deferred until pending_coils
+    # also drops to zero, so a pulse scheduled but not yet fired can't
+    # be interrupted by a save/disarm triggered off a premature COMPLETE.
+    completion_ready: bool = False
 
     def record(self, event: str) -> int:
         """Record *event* at the current instant. Returns the ns timestamp."""
@@ -284,6 +299,7 @@ class Sequencer:
             # disarm/clear cannot null them before we use them.
             run = self._current_run
             pulse_us = self._config["coil_1_pulse_duration_us"]
+            run.pending_coils += 1
 
         # Record the fire command timestamp
         run.record("t_coil_0")
@@ -298,7 +314,7 @@ class Sequencer:
         # Coil 1 pulse duration handled in a dedicated thread
         threading.Thread(
             target=self._coil_pulse_thread,
-            args=(1, pulse_us),
+            args=(1, pulse_us, run),
             daemon=True,
         ).start()
 
@@ -373,7 +389,12 @@ class Sequencer:
             self.hw.register_gate_callback(gate_num, "falling", _on_trailing)
 
     def _on_gate_leading(self, gate_num: int, gen: int) -> None:
-        """Handle beam-break leading edge (falling edge on GPIO).
+        """Handle beam-break leading edge (rising edge on GPIO).
+
+        The downstream coil's firing delay is measured from *this* edge —
+        the leading (beam-break) edge of the gate — not the trailing
+        edge. gate_N_coil_(N+1)_delay_us is the time from beam-break to
+        coil ON.
 
         First-edge-wins: repeat callbacks for the same gate within a run
         (sensor bounce, EMI jitter) are dropped under the lock so coil
@@ -402,6 +423,10 @@ class Sequencer:
                              2: "gate_2_coil_3_delay_us"}[gate_num]
                 delay_us = self._config[delay_key]
                 pulse_us = self._config[f"coil_{next_coil}_pulse_duration_us"]
+                # Mark the pulse as in-flight before releasing the lock,
+                # so a gate trailing edge observed in the interim can't
+                # flip state to COMPLETE while the pulse is still pending.
+                run.pending_coils += 1
 
         # Side effects outside the lock.
         log.info(f"Gate {gate_num} LEADING edge @ {t}")
@@ -411,14 +436,19 @@ class Sequencer:
             return
 
         # Fire next coil after precise delay in a dedicated thread.
+        # *t* above is the LEADING-edge timestamp; the delay is measured
+        # from that point, not from the trailing edge.
         threading.Thread(
             target=self._delayed_coil_fire,
-            args=(next_coil, t, delay_us, pulse_us),
+            args=(next_coil, t, delay_us, pulse_us, run),
             daemon=True,
         ).start()
 
     def _on_gate_trailing(self, gate_num: int, gen: int) -> None:
-        """Handle beam-restore trailing edge (rising edge on GPIO).
+        """Handle beam-restore trailing edge (falling edge on GPIO).
+
+        Only records the timestamp — the downstream coil firing is driven
+        off the *leading* edge, so this handler never schedules a pulse.
 
         First-edge-wins dedup, same rationale as _on_gate_leading: without
         this, a bouncing sensor would overwrite t_gate_N_off with the last
@@ -437,25 +467,49 @@ class Sequencer:
         log.info(f"Gate {gate_num} TRAILING edge")
         self._publish()
 
-        # If this is the last active gate, mark the run complete
-        if gate_num == 3 or self._all_expected_gates_done():
+        # Only gate 3's trailing edge is the cascade's "done" signal.
+        # Treating "gate N trailed + no other gate waiting" (the old
+        # _all_expected_gates_done check) as completion is unsafe — at
+        # the moment gate 1 trails, gate 2/3 simply haven't fired yet
+        # (their `on` is None), so the old check trivially passed and
+        # flipped state to COMPLETE before the downstream coils even ran.
+        # Now the only trailing edge that can complete a run is gate 3's,
+        # and the actual transition additionally requires pending_coils
+        # == 0 (see `_check_and_complete`).
+        if gate_num == 3:
             with self._lock:
-                if self._state == State.FIRING:
-                    self._state = State.COMPLETE
-                    log.info("RUN COMPLETE")
-            self._publish()
+                run = self._current_run
+                if run is not None and self._state == State.FIRING:
+                    run.completion_ready = True
+        self._check_and_complete()
 
-    def _all_expected_gates_done(self) -> bool:
-        """Check if all gates that received a leading edge also have a trailing edge."""
-        if self._current_run is None:
-            return False
-        ts = self._current_run.timestamps
-        for g in (1, 2, 3):
-            on = ts.get(f"t_gate_{g}_on")
-            off = ts.get(f"t_gate_{g}_off")
-            if on is not None and off is None:
-                return False  # still waiting for a trailing edge
-        return True
+    def _check_and_complete(self) -> None:
+        """Perform the FIRING → COMPLETE transition if all conditions hold.
+
+        Conditions:
+          1. Gate trailing has signalled readiness (completion_ready).
+          2. No coil pulse is still in-flight (pending_coils == 0).
+
+        Called from both `_on_gate_trailing` (where condition 1 may
+        become true) and the coil pulse thread (where condition 2 may
+        become true). Either edge can be the one that completes the run.
+        """
+        should_publish = False
+        with self._lock:
+            if self._state != State.FIRING:
+                return
+            run = self._current_run
+            if run is None:
+                return
+            if not run.completion_ready:
+                return
+            if run.pending_coils > 0:
+                return
+            self._state = State.COMPLETE
+            log.info("RUN COMPLETE")
+            should_publish = True
+        if should_publish:
+            self._publish()
 
     # -- internal: precise coil timing ------------------------------------
 
@@ -465,8 +519,19 @@ class Sequencer:
         reference_ns: int,
         delay_us: float,
         pulse_us: float,
+        run_ref: "RunData",
     ) -> None:
-        """Busy-wait for *delay_us* after *reference_ns*, then pulse the coil."""
+        """Busy-wait *delay_us* past the gate LEADING-edge timestamp, then pulse.
+
+        *reference_ns* must be the leading-edge timestamp captured by
+        `_on_gate_leading` (not the trailing edge) — the firing delay is
+        measured from beam-break, per the configuration semantics.
+
+        *run_ref* is the RunData for the run that scheduled this pulse.
+        We pair the pulse against this reference so that a concurrent
+        clear/save (which nulls `_current_run`) doesn't cause us to stop
+        short or fire into a stale run.
+        """
         target_ns = reference_ns + int(delay_us * 1_000)
 
         # Busy-wait for µs-level precision
@@ -474,25 +539,48 @@ class Sequencer:
             pass
 
         self.hw.set_coil(coil_num, True)
-        if self._current_run:
-            self._current_run.record(f"t_coil_{coil_num}_on")
+        with self._lock:
+            # Record into the run we were scheduled against. If save/clear
+            # already rotated `_current_run`, still fire the coil (the
+            # caller committed to this pulse when it scheduled us) but
+            # skip the timestamp — it would land in a stale run.
+            if self._current_run is run_ref:
+                run_ref.record(f"t_coil_{coil_num}_on")
         log.info(f"Coil {coil_num} ON (after {delay_us} µs delay)")
         self._publish()
 
-        # Now hold for pulse duration
-        self._coil_pulse_thread(coil_num, pulse_us)
+        # Now hold for pulse duration and release.
+        self._coil_pulse_thread(coil_num, pulse_us, run_ref)
 
-    def _coil_pulse_thread(self, coil_num: int, pulse_us: float) -> None:
-        """Hold coil HIGH for *pulse_us*, then turn off."""
+    def _coil_pulse_thread(
+        self,
+        coil_num: int,
+        pulse_us: float,
+        run_ref: "RunData",
+    ) -> None:
+        """Hold coil HIGH for *pulse_us*, then turn off.
+
+        Decrements the pending-coils counter on *run_ref* under the lock
+        once the coil is released, then drives a completion check — this
+        is what lets `_check_and_complete` safely transition to COMPLETE
+        only after every scheduled pulse has finished.
+        """
         target_ns = time.perf_counter_ns() + int(pulse_us * 1_000)
         while time.perf_counter_ns() < target_ns:
             pass
 
         self.hw.set_coil(coil_num, False)
-        if self._current_run:
-            self._current_run.record(f"t_coil_{coil_num}_off")
+        with self._lock:
+            if self._current_run is run_ref:
+                run_ref.record(f"t_coil_{coil_num}_off")
+            # Always decrement — the pending count is on *run_ref*, not
+            # `self._current_run`, so a rotated run doesn't leak it.
+            run_ref.pending_coils -= 1
         log.info(f"Coil {coil_num} OFF (after {pulse_us} µs pulse)")
         self._publish()
+
+        # A pulse ending can be the last step needed to complete the run.
+        self._check_and_complete()
 
     # -- internal: external trigger ---------------------------------------
 
@@ -500,3 +588,142 @@ class Sequencer:
         """Callback for the physical fire button."""
         log.info("External trigger pressed")
         self.fire()
+
+    # -- manual component tests (Manual page) -----------------------------
+    #
+    # These two methods exist so an operator can exercise coil 2, coil 3,
+    # gate 1, and gate 2 individually for pre-flight checks — e.g. to
+    # confirm coil 3's wiring after it was physically attached without
+    # having to send a real projectile through the full cascade.
+    #
+    # Both require the sequencer to be ARMED (or already FIRING); they
+    # will NOT auto-arm, because arm() is what allocates the RunData
+    # that captures the resulting timestamps and enforces dedup. After
+    # a manual test the operator is expected to CLEAR or SAVE, same as
+    # a normal run.
+
+    def manual_fire_coil(self, coil_num: int) -> bool:
+        """Fire coil 2 or 3 for its configured pulse duration, right now.
+
+        Bypasses the gate cascade — the coil energises immediately,
+        holds for coil_N_pulse_duration_us, and releases. Records
+        t_coil_N_on / t_coil_N_off into the current run so the pulse
+        is visible on the UI and auditable afterwards.
+
+        Returns False if not armed or if coil_num is not 2 or 3. Coil 1
+        has its own entry point (`fire()`).
+        """
+        if coil_num not in (2, 3):
+            log.warning(f"manual_fire_coil: coil {coil_num} not supported")
+            return False
+        with self._lock:
+            if self._state not in (State.ARMED, State.FIRING):
+                log.warning(
+                    f"manual_fire_coil: wrong state {self._state}"
+                )
+                return False
+            run = self._current_run
+            if run is None:
+                return False
+            # Transition to FIRING so the UI reflects an active pulse
+            # and _check_and_complete can later flip to COMPLETE.
+            self._state = State.FIRING
+            pulse_us = self._config[f"coil_{coil_num}_pulse_duration_us"]
+            run.pending_coils += 1
+
+        log.info(f"MANUAL FIRE – coil {coil_num}")
+        self._publish()
+        threading.Thread(
+            target=self._manual_coil_fire_thread,
+            args=(coil_num, pulse_us, run),
+            daemon=True,
+        ).start()
+        return True
+
+    def _manual_coil_fire_thread(
+        self,
+        coil_num: int,
+        pulse_us: float,
+        run_ref: "RunData",
+    ) -> None:
+        """Worker for manual_fire_coil: energise, record, hold, release."""
+        self.hw.set_coil(coil_num, True)
+        with self._lock:
+            if self._current_run is run_ref:
+                run_ref.record(f"t_coil_{coil_num}_on")
+        log.info(f"Coil {coil_num} ON (manual)")
+        self._publish()
+        self._coil_pulse_thread(coil_num, pulse_us, run_ref)
+
+    def manual_simulate_gate(
+        self,
+        gate_num: int,
+        transit_us: float = 500.0,
+    ) -> bool:
+        """Simulate a gate 1 or 2 trigger: leading edge, then trailing after
+        *transit_us*.
+
+        Runs the same code path as a real beam break, so the downstream
+        coil (coil 2 for gate 1, coil 3 for gate 2) fires after the
+        configured delay just as it would in a live run. Use this to
+        verify gate→coil wiring and config without a projectile.
+
+        Returns False if not armed or gate_num is not 1 or 2. Gate 3 is
+        not supported because it has no downstream coil to exercise.
+        """
+        if gate_num not in (1, 2):
+            log.warning(f"manual_simulate_gate: gate {gate_num} not supported")
+            return False
+        with self._lock:
+            if self._state not in (State.ARMED, State.FIRING):
+                log.warning(
+                    f"manual_simulate_gate: wrong state {self._state}"
+                )
+                return False
+            if self._current_run is None:
+                return False
+            # Transition to FIRING for the same reasons as manual_fire_coil.
+            self._state = State.FIRING
+            gen = self._run_generation
+
+        log.info(f"MANUAL SIMULATE – gate {gate_num} (transit {transit_us} µs)")
+        self._publish()
+        # Drive the leading edge inline; the scheduling of the downstream
+        # coil happens inside _on_gate_leading under the lock.
+        self._on_gate_leading(gate_num, gen)
+        # Trailing edge fires at leading_ts + transit_us. Capture the
+        # leading-edge timestamp from the run dict (not from this
+        # thread's current clock), because the coil-fire busy-wait
+        # _on_gate_leading just spawned can starve the trailing thread
+        # by several milliseconds. Without this anchor, transit_us
+        # would be measured from "whenever the trailing thread got a
+        # chance to run" — not from the actual beam-break event.
+        leading_ns = None
+        with self._lock:
+            run = self._current_run
+            if run is not None:
+                leading_ns = run.timestamps.get(f"t_gate_{gate_num}_on")
+        if leading_ns is None:
+            # Dedup dropped the leading edge — nothing to trail.
+            return True
+        target_ns = leading_ns + int(transit_us * 1_000)
+        threading.Thread(
+            target=self._delayed_gate_trailing,
+            args=(gate_num, gen, target_ns),
+            daemon=True,
+        ).start()
+        return True
+
+    def _delayed_gate_trailing(
+        self,
+        gate_num: int,
+        gen: int,
+        target_ns: int,
+    ) -> None:
+        """Worker for manual_simulate_gate: fire the trailing edge at
+        *target_ns* (absolute perf_counter_ns time). Using an absolute
+        anchor, not a relative delay-from-now, is essential — see
+        `manual_simulate_gate` for why."""
+        while time.perf_counter_ns() < target_ns:
+            pass
+        self._on_gate_trailing(gate_num, gen)

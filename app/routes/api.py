@@ -216,6 +216,44 @@ def history():
     return jsonify([l.to_dict() for l in logs])
 
 
+# ── Manual component tests (Manual page) ───────────────────────────────
+
+@api_bp.route("/manual/coil/<int:coil_num>/fire", methods=["POST"])
+def manual_fire_coil(coil_num: int):
+    """Fire coil 2 or 3 for its configured pulse duration.
+
+    Requires the sequencer to be ARMED (or already FIRING). Used by the
+    Manual touchscreen page to verify coil wiring without running the
+    full gate cascade.
+    """
+    if coil_num not in (2, 3):
+        return jsonify({"error": "coil must be 2 or 3"}), 400
+    ok = _seq().manual_fire_coil(coil_num)
+    if not ok:
+        return jsonify({
+            "error": f"Cannot fire coil {coil_num} in current state"
+        }), 409
+    return jsonify({"status": "firing", "coil": coil_num})
+
+
+@api_bp.route("/manual/gate/<int:gate_num>/trigger", methods=["POST"])
+def manual_trigger_gate(gate_num: int):
+    """Simulate a gate 1 or 2 trigger (leading edge + 500 µs transit).
+
+    Drives the same handler path a real beam-break would, so the
+    downstream coil fires after its configured delay. Requires the
+    sequencer to be ARMED (or already FIRING).
+    """
+    if gate_num not in (1, 2):
+        return jsonify({"error": "gate must be 1 or 2"}), 400
+    ok = _seq().manual_simulate_gate(gate_num, transit_us=500.0)
+    if not ok:
+        return jsonify({
+            "error": f"Cannot trigger gate {gate_num} in current state"
+        }), 409
+    return jsonify({"status": "triggered", "gate": gate_num})
+
+
 # ── Mock-only: simulate trigger (development helper) ────────────────────
 
 @api_bp.route("/mock/trigger", methods=["POST"])
