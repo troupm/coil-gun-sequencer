@@ -89,6 +89,34 @@ def clear_run():
     return jsonify({"status": "cleared"})
 
 
+# ── Manual test controls (Manual page) ──────────────────────────────────
+
+@api_bp.route("/manual/coil/<int:coil_num>/fire", methods=["POST"])
+def manual_fire_coil(coil_num):
+    """Directly energise a coil for bench testing. Requires ARMED state."""
+    result = _seq().manual_fire_coil(coil_num)
+    if result == "ok":
+        return jsonify({"status": "fired", "coil": coil_num})
+    if result == "bad_coil":
+        return jsonify({"error": "coil_num must be 1, 2, or 3"}), 400
+    return jsonify({"error": "Cannot manual-fire in current state"}), 409
+
+
+@api_bp.route("/manual/gate/<int:gate_num>/trigger", methods=["POST"])
+def manual_trigger_gate(gate_num):
+    """Simulate a gate leading edge for bench testing. Requires ARMED state."""
+    result = _seq().manual_trigger_gate(gate_num)
+    if result == "ok":
+        return jsonify({"status": "triggered", "gate": gate_num})
+    if result == "bad_gate":
+        return jsonify({"error": "gate_num must be 1, 2, or 3"}), 400
+    if result == "already_fired":
+        return jsonify({
+            "error": f"Gate {gate_num} leading edge already recorded this run",
+        }), 409
+    return jsonify({"error": "Cannot manual-trigger in current state"}), 409
+
+
 # ── Configuration ───────────────────────────────────────────────────────
 
 @api_bp.route("/config", methods=["GET"])
