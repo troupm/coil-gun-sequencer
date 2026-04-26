@@ -456,10 +456,11 @@ def analysis_runs():
 def analysis_overview():
     """Per-sequence average velocities for the cross-sequence trend chart.
 
-    Returns sequences ordered by first_run ASC (chronological) so the chart
-    reads left-to-right in time.
+    Returns the most recent five sequences ordered by first_run ASC
+    (chronological) so the chart reads left-to-right in time. Older
+    sequences are omitted so calibration / yardstick / wrong-config
+    sessions don't dominate the y-axis indefinitely.
     """
-    # Get all sequences
     seq_rows = (
         db.session.query(
             EventLog.run_sequence_id,
@@ -467,9 +468,12 @@ def analysis_overview():
             func.min(EventLog.created_at).label("first_run"),
         )
         .group_by(EventLog.run_sequence_id)
-        .order_by(func.min(EventLog.created_at).asc())
+        .order_by(func.min(EventLog.created_at).desc())
+        .limit(5)
         .all()
     )
+    # We pulled DESC to apply LIMIT; flip back to chronological for the chart.
+    seq_rows = list(reversed(seq_rows))
 
     if not seq_rows:
         return jsonify([])

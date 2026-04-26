@@ -254,13 +254,72 @@
 
   // ── Run-over-run chart ─────────────────────────────────────────────────
 
+  // Outlier detection for the trend chart. Two rules, applied in order:
+  //   (a) Intra-run absurdity: a velocity in a run is flagged if it is
+  //       > 3x EVERY other velocity in the same run (i.e. dominates all
+  //       peers). Catches calibration / yardstick rows where one gate's
+  //       reading is orders of magnitude off (e.g. G3 transit reading
+  //       1635 m/s when every other reading is < 60 m/s). Deliberately
+  //       does NOT flag the systematic ~4x gap between gate-transit and
+  //       gate-to-gate-flight velocities, which is a known measurement-
+  //       method artefact, not bad data.
+  //   (b) Per-series 3-sigma fence (only when n>5 valid values remain after
+  //       rule (a)): drops single-shot anomalies that aren't intra-run
+  //       inconsistent but are far from the sequence's typical velocity for
+  //       that series.
+  // Rule (a) runs first so its hits don't pollute the mean/sigma of rule (b).
+  function detectChartOutliers(runs, velKeys) {
+    const flagged = new Set();  // 'runId:vk' tuples
+    const key = (r, vk) => r.id + ':' + vk;
+
+    // (a) intra-run dominance check
+    for (const r of runs) {
+      const vals = velKeys
+        .map(vk => ({ vk, v: r[vk] }))
+        .filter(x => x.v != null && x.v > 0);
+      if (vals.length < 2) continue;
+      for (const a of vals) {
+        const peers = vals.filter(p => p.vk !== a.vk);
+        if (peers.length === 0) continue;
+        const peerMax = Math.max(...peers.map(p => p.v));
+        if (a.v > 3 * peerMax) flagged.add(key(r, a.vk));
+      }
+    }
+
+    // (b) per-series 3-sigma, post (a)
+    for (const vk of velKeys) {
+      const vals = runs
+        .filter(r => !flagged.has(key(r, vk)))
+        .map(r => r[vk])
+        .filter(v => v != null);
+      if (vals.length <= 5) continue;
+      const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+      const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+      const sigma = Math.sqrt(variance);
+      if (sigma === 0) continue;
+      for (const r of runs) {
+        const v = r[vk];
+        if (v != null && Math.abs(v - mean) > 3 * sigma) {
+          flagged.add(key(r, vk));
+        }
+      }
+    }
+    return flagged;
+  }
+
   function updateRunChart(runs) {
     const chronological = [...runs].reverse();
     const labels = chronological.map(r => '#' + r.run_number);
+    const outliers = detectChartOutliers(chronological, VEL_KEYS);
 
     const datasets = VEL_KEYS.map(vk => ({
       label: SERIES_LABELS[vk],
-      data: chronological.map(r => r[vk] != null ? r[vk] : null),
+      data: chronological.map(r => {
+        const v = r[vk];
+        if (v == null) return null;
+        if (outliers.has(r.id + ':' + vk)) return null;
+        return v;
+      }),
       borderColor: SERIES_COLORS[vk],
       backgroundColor: SERIES_COLORS[vk] + '33',
       borderWidth: 2,
