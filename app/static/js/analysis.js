@@ -37,6 +37,17 @@
     'gate_2_to_gate_3_velocity_ms': 'Muzzle (G2\u2192G3)',
   };
 
+  // Transit-derived velocities are precise but inflated relative to flight-
+  // derived ones (different measurement method). Plot them on separate Y
+  // axes so the flight trend isn't squashed against the transit scale.
+  const SERIES_AXIS = {
+    'gate_1_transit_velocity_ms':   'yTransit',
+    'gate_2_transit_velocity_ms':   'yTransit',
+    'gate_3_transit_velocity_ms':   'yTransit',
+    'gate_1_to_gate_2_velocity_ms': 'yFlight',
+    'gate_2_to_gate_3_velocity_ms': 'yFlight',
+  };
+
   const TREND_HTML = {
     improving: '<span class="trend-up" title="Improving">\u25B2</span>',
     declining: '<span class="trend-down" title="Declining">\u25BC</span>',
@@ -326,13 +337,14 @@
       pointRadius: 3,
       tension: 0.25,
       spanGaps: true,
+      yAxisID: SERIES_AXIS[vk],
     }));
 
     if (runChart) runChart.destroy();
     runChart = new Chart(document.getElementById('chart-runs'), {
       type: 'line',
       data: { labels, datasets },
-      options: chartOpts('Run #', 'Velocity (m/s)'),
+      options: chartOpts('Run #', 'Transit Velocity (m/s)', 'Flight Velocity (m/s)'),
     });
   }
 
@@ -358,19 +370,20 @@
       pointRadius: 4,
       tension: 0.25,
       spanGaps: true,
+      yAxisID: SERIES_AXIS[vk],
     }));
 
     if (seqChart) seqChart.destroy();
     seqChart = new Chart(document.getElementById('chart-sequences'), {
       type: 'line',
       data: { labels, datasets },
-      options: chartOpts('Sequence', 'Avg Velocity (m/s)'),
+      options: chartOpts('Sequence', 'Avg Transit Velocity (m/s)', 'Avg Flight Velocity (m/s)'),
     });
   }
 
   // ── Shared chart options ───────────────────────────────────────────────
 
-  function chartOpts(xLabel, yLabel) {
+  function chartOpts(xLabel, transitYLabel, flightYLabel) {
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -393,10 +406,20 @@
           ticks: { color: '#8888aa', font: { size: 10 } },
           grid: { color: 'rgba(255,255,255,0.05)' },
         },
-        y: {
-          title: { display: true, text: yLabel, color: '#8888aa' },
+        yTransit: {
+          type: 'linear',
+          position: 'left',
+          title: { display: true, text: transitYLabel, color: '#8888aa' },
           ticks: { color: '#8888aa' },
           grid: { color: 'rgba(255,255,255,0.08)' },
+          beginAtZero: false,
+        },
+        yFlight: {
+          type: 'linear',
+          position: 'right',
+          title: { display: true, text: flightYLabel, color: '#8888aa' },
+          ticks: { color: '#8888aa' },
+          grid: { drawOnChartArea: false },
           beginAtZero: false,
         },
       },
