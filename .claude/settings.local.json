@@ -35,7 +35,8 @@
       "Bash(python3 -c ' *)",
       "Bash(rm -f /tmp/remote_seq.db)",
       "Bash(git cat-file *)",
-      "Bash(cygpath *)"
+      "Bash(cygpath *)",
+      "Bash(python3 *)"
     ]
   }
 }

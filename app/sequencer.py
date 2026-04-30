@@ -373,7 +373,7 @@ class Sequencer:
             self.hw.register_gate_callback(gate_num, "falling", _on_trailing)
 
     def _on_gate_leading(self, gate_num: int, gen: int) -> None:
-        """Handle beam-break leading edge (falling edge on GPIO).
+        """Handle beam-break leading edge (rising edge on GPIO).
 
         First-edge-wins: repeat callbacks for the same gate within a run
         (sensor bounce, EMI jitter) are dropped under the lock so coil
@@ -418,7 +418,7 @@ class Sequencer:
         ).start()
 
     def _on_gate_trailing(self, gate_num: int, gen: int) -> None:
-        """Handle beam-restore trailing edge (rising edge on GPIO).
+        """Handle beam-restore trailing edge (falling edge on GPIO).
 
         First-edge-wins dedup, same rationale as _on_gate_leading: without
         this, a bouncing sensor would overwrite t_gate_N_off with the last
