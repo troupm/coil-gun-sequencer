@@ -34,13 +34,11 @@ file to match, don't the other way round.
 
 ## Timing / hardware ground truth
 
-- Gate inputs: **idle LOW, active HIGH**. Beam break drives the line HIGH
-  (rising edge = leading edge); beam restore falls back to LOW (falling
-  edge = trailing edge). Polarity was flipped on 2026-04-16 after
-  replacing the mismatched gate 1 sensor — prior to that, gate 1 was
-  idle-HIGH and gate 2 was idle-LOW and 93 %+ of persisted runs had
-  negative `gate_N_transit_us`. The spec file may still describe the
-  old convention; the code is correct.
+- Gate inputs: **normally HIGH / active LOW**. Beam break pulls the GPIO
+  line LOW (falling edge = leading edge); beam restore returns it HIGH
+  (rising edge = trailing edge). This was re-confirmed on 2026-04-30 after
+  the Fire Control screen showed negative transit times: the prior idle-LOW
+  code path was starting gate->coil delay timers on beam restore.
 - `GATE_1_COIL_2_DELAY_US` — gate 1 fires coil **2** (not coil 1)
 - `GATE_2_COIL_3_DELAY_US` — gate 2 fires coil 3
 - `COIL_3_PULSE_DURATION_US` — exists in code, was missing from original spec

@@ -7,7 +7,42 @@ rather than deleting — the history is the point.
 
 ---
 
+## 2026-04-30 — Gate polarity re-confirmed as normally HIGH
+
+**Symptom:** All Fire Control "Transit Time" values showed negative numbers.
+This could not be treated as a display-only `abs()` issue because the same
+`t_gate_N_on` timestamp anchors the downstream gate→coil delay timer.
+
+**Cause:** The live code had been changed to the idle-LOW assumption:
+`_on_gate_leading` was registered on `"rising"` and `_on_gate_trailing` on
+`"falling"`, while `RealHardware` used `pull_up=False`. For normally-HIGH
+beam-break gates, that means beam restore was treated as the leading edge and
+downstream coils were delayed from restore instead of beam break.
+
+**Fix:**
+
+- `app/sequencer.py`: falling edge now calls `_on_gate_leading`; rising edge
+  calls `_on_gate_trailing`.
+- `app/hardware/real.py`: gate inputs use `pull_up=True`; gpiozero
+  `when_activated` maps to physical falling/beam-break and
+  `when_deactivated` maps to physical rising/restore.
+- `app/hardware/mock.py`: mock gate simulation emits falling for beam-break
+  and rising for beam-restore.
+- Tests now include a direct assertion that a gate-1 falling edge records
+  `t_gate_1_on` and starts the coil-2 delay.
+
+**Rule:** In this project, "leading edge" means the projectile broke the beam,
+not "rising voltage." For the installed normally-HIGH sensors:
+falling = leading/beam-break, rising = trailing/beam-restore.
+
+---
+
 ## 2026-04-16 — Mismatched gate sensor polarity produced negative transit times
+
+**Superseded note:** The idle-LOW conclusion in this entry was overturned on
+2026-04-30 after the installed gate sensors were re-confirmed normally HIGH.
+Keep this entry as historical context for why stale comments/tests may still
+mention idle-LOW.
 
 **Symptom:** `gate_1_transit_us` and `gate_2_transit_us` were negative on
 ~95 % of persisted runs — 427/443 for gate 1 and 372/399 for gate 2.

@@ -1,8 +1,8 @@
 """Real hardware backend using gpiozero on the Raspberry Pi.
 
-Gate sensors  : Idle LOW, active HIGH — projectile breaking the beam drives
-                the line HIGH (rising edge = leading edge / beam break).
-                Beam restore pulls back to LOW (falling edge = trailing).
+Gate sensors  : Normally HIGH, active LOW — projectile breaking the beam pulls
+                the line LOW (falling edge = leading edge / beam break).
+                Beam restore returns to HIGH (rising edge = trailing).
 External trigger: Pull-down, active HIGH (rising edge = press)
 Coil outputs  : Active HIGH to energise
 """
@@ -49,16 +49,15 @@ class RealHardware(HardwareInterface):
             3: OD(cfg.GPIO_COIL_3, initial_value=False),
         }
 
-        # Gates: idle-LOW, active-HIGH → pull_up=False so the internal
-        # pull-down holds the line LOW when the sensor is tri-state/off,
-        # matching the sensor's idle state and giving a clean rising edge
-        # on beam-break. With this, gpiozero semantics:
-        #   when_activated   = line went HIGH → rising edge → beam break
-        #   when_deactivated = line went LOW  → falling edge → beam restore
+        # Gates: normally HIGH, active LOW. pull_up=True keeps the input HIGH
+        # when idle and matches the sensor's normal state. With gpiozero's
+        # default active_state for pull_up=True:
+        #   when_activated   = line went LOW  → falling edge → beam break
+        #   when_deactivated = line went HIGH → rising edge → beam restore
         self._gates = {
-            1: DID(cfg.GPIO_GATE_1, pull_up=False, bounce_time=None),
-            2: DID(cfg.GPIO_GATE_2, pull_up=False, bounce_time=None),
-            3: DID(cfg.GPIO_GATE_3, pull_up=False, bounce_time=None),
+            1: DID(cfg.GPIO_GATE_1, pull_up=True, bounce_time=None),
+            2: DID(cfg.GPIO_GATE_2, pull_up=True, bounce_time=None),
+            3: DID(cfg.GPIO_GATE_3, pull_up=True, bounce_time=None),
         }
 
         # External trigger: pull-down, active HIGH
@@ -101,13 +100,13 @@ class RealHardware(HardwareInterface):
         self._gate_callbacks.setdefault(key, []).append(callback)
 
         # Wire up gpiozero callbacks.
-        # DigitalInputDevice with pull_up=False (idle-LOW sensors):
-        #   when_activated  = rising edge (line went HIGH = beam break)
-        #   when_deactivated = falling edge (line went LOW = beam restore)
+        # DigitalInputDevice with pull_up=True (normally-HIGH sensors):
+        #   when_activated   = falling edge (line went LOW = beam break)
+        #   when_deactivated = rising edge (line went HIGH = beam restore)
         # The `edge` argument names the *physical* edge direction on the
         # wire; the sequencer decides which physical edge maps to
         # leading/trailing (see sequencer._register_gate_callbacks).
-        if edge == "rising":
+        if edge == "falling":
             existing = gate.when_activated
 
             def _on_activated():
@@ -117,7 +116,7 @@ class RealHardware(HardwareInterface):
                     cb()
 
             gate.when_activated = _on_activated
-        elif edge == "falling":
+        elif edge == "rising":
             existing = gate.when_deactivated
 
             def _on_deactivated():

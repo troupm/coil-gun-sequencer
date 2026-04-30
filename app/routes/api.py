@@ -295,9 +295,9 @@ def _compute_run_velocities(ev, cfg):
     stats = {}
     proj_len = cfg.projectile_length_mm
 
-    # See app/sequencer.py:compute_stats for the abs()/10-µs rationale —
-    # pre-2026-04-16 rows have off<on (gate polarity was inverted) and
-    # magnitude is the real transit duration, so we salvage them via
+    # See app/sequencer.py:compute_stats for the abs()/10-µs rationale:
+    # rows recorded while gate edge mapping was inverted have off<on, and
+    # magnitude is still the real transit duration. Salvage velocity via
     # abs() while keeping the signed `_us` field visible to the UI.
     for g in (1, 2, 3):
         on = getattr(ev, f"t_gate_{g}_on")

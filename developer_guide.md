@@ -175,7 +175,7 @@ These are wired up to `POST /api/mock/trigger` in the API.
 `RealHardware` uses gpiozero on RPi 5:
 
 - **Coils**: `OutputDevice` on GPIO 17, 27, 22
-- **Gates**: `DigitalInputDevice` with `pull_up=True`, no bounce. `when_activated` = falling edge (beam break), `when_deactivated` = rising edge (beam restore).
+- **Gates**: normally-HIGH / active-LOW `DigitalInputDevice` with `pull_up=True`, no bounce. `when_activated` = falling edge (beam break), `when_deactivated` = rising edge (beam restore).
 - **External trigger**: `Button` with `pull_up=False` (active HIGH), 10 ms bounce.
 - **ADC**: Stub returning `None`. See "Adding an ADC" below.
 

@@ -58,13 +58,13 @@ class MockHardware(HardwareInterface):
     def _schedule_simulated_gate(self, gate_num: int) -> None:
         """Simulate a projectile breaking the beam at *gate_num*."""
 
-        # On the real rig the gate sensors are idle-LOW: beam-break = rising
-        # edge, beam-restore = falling edge. The mock mirrors that physical
-        # polarity so code paths downstream of register_gate_callback (i.e.
-        # the sequencer's edge-to-handler wiring) exercise the real mapping.
+        # On the real rig the gate sensors are normally HIGH: beam-break =
+        # falling edge, beam-restore = rising edge. The mock mirrors that
+        # physical polarity so code paths downstream of register_gate_callback
+        # exercise the real mapping.
         def _trigger_leading():
             log.info(f"[MockHW] Simulated gate {gate_num} LEADING edge (beam break)")
-            cbs = self._gate_callbacks.get((gate_num, "rising"), [])
+            cbs = self._gate_callbacks.get((gate_num, "falling"), [])
             for cb in cbs:
                 cb()
             # Schedule trailing edge after transit time
@@ -76,7 +76,7 @@ class MockHardware(HardwareInterface):
 
         def _trigger_trailing():
             log.info(f"[MockHW] Simulated gate {gate_num} TRAILING edge (beam restore)")
-            cbs = self._gate_callbacks.get((gate_num, "falling"), [])
+            cbs = self._gate_callbacks.get((gate_num, "rising"), [])
             for cb in cbs:
                 cb()
 

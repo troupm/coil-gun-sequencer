@@ -304,14 +304,37 @@ class GateBounceRegressionTests(unittest.TestCase):
         # The new run must not have been affected.
         self.assertNotIn(1, self.seq._current_run.seen_leading)
 
-    def test_gate_transit_is_positive_after_beam_break_then_restore(self) -> None:
-        """Polarity regression (2026-04-16).
+    def test_idle_high_falling_edge_starts_downstream_coil_delay(self) -> None:
+        """Normally-HIGH gates must treat falling edge as beam-break.
 
-        On the real rig the gates are idle-LOW: beam-break is a rising edge
-        and beam-restore is a falling edge. A past version of the code
-        registered the leading handler on 'falling' and trailing on 'rising',
-        which produced negative transit times once the new gate sensors were
-        installed and lost gate_N_transit_velocity_ms for every run.
+        This pins the safety-critical mapping: gate->coil delay starts on
+        beam-break (HIGH->LOW), not on beam-restore (LOW->HIGH). A regression
+        that wires "rising" to _on_gate_leading would record t_gate_1_off
+        here and never schedule coil 2.
+        """
+        self.assertTrue(self.seq.arm())
+
+        for cb in self.hw._gate_callbacks[(1, "falling")]:
+            cb()
+
+        ts = self.seq._current_run.timestamps
+        self.assertIsNotNone(ts["t_gate_1_on"])
+        self.assertIsNone(ts["t_gate_1_off"])
+        self.assertIn(1, self.seq._current_run.seen_leading)
+        self.assertNotIn(1, self.seq._current_run.seen_trailing)
+
+        self.assertTrue(
+            _wait_until(lambda: self.hw.coil_on_counts[2] >= 1, timeout_s=0.5),
+            "coil 2 was not fired from the gate-1 falling-edge delay anchor",
+        )
+
+    def test_gate_transit_is_positive_after_beam_break_then_restore(self) -> None:
+        """Polarity regression for normally-HIGH gate sensors.
+
+        On the real rig the gates are normally HIGH: beam-break is a falling
+        edge and beam-restore is a rising edge. A bad mapping that registers
+        leading on "rising" and trailing on "falling" produces negative
+        transit times and, worse, starts downstream coil delays on restore.
 
         This test asserts that the full cascade — driven through the mock's
         beam-break/beam-restore simulation — yields t_gate_N_off > t_gate_N_on

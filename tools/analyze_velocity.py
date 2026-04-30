@@ -179,9 +179,9 @@ def compute_velocities(row):
         off = row[f"t_gate_{g}_off"]
         if on is not None and off is not None:
             transit_us = (off - on) / 1_000.0
-            if transit_us > 0 and proj_len > 0:
+            if abs(transit_us) >= 10.0 and proj_len > 0:
                 vels[f"gate_{g}_transit_velocity_ms"] = round(
-                    proj_len * 1_000.0 / transit_us, 4
+                    proj_len * 1_000.0 / abs(transit_us), 4
                 )
 
     pairs = [
