@@ -87,6 +87,13 @@ class SequencerHappyPathTests(unittest.TestCase):
         The mock hardware auto-simulates gate events when coils fire, so
         a single fire() call drives the full coil_1 → gate_1 → coil_2 →
         gate_2 → coil_3 → gate_3 pipeline without any test-side poking.
+
+        State reaches COMPLETE on gate 2's trailing edge, which lands
+        ~1.5 ms *before* coil 3 is scheduled to fire (gate_2 leading +
+        2000 µs delay). A state-only wait was racy under CPU load — this
+        helper now waits for state COMPLETE *and* the coil 3 pulse to
+        have started, so callers checking coil_on_counts won't trip on
+        an unfired-but-imminent coil 3.
         """
         self.assertEqual(self.seq.state, State.READY)
         self.assertTrue(self.seq.arm(), "arm() should succeed from READY")
@@ -95,8 +102,13 @@ class SequencerHappyPathTests(unittest.TestCase):
         self.assertTrue(self.seq.fire(), "fire() should succeed from ARMED")
         # fire() transitions ARMED → FIRING synchronously; gate cascade is async.
         self.assertTrue(
-            _wait_until(lambda: self.seq.state == State.COMPLETE, timeout_s=1.0),
-            f"sequence did not reach COMPLETE; stuck at {self.seq.state}",
+            _wait_until(
+                lambda: (self.seq.state == State.COMPLETE
+                         and self.hw.coil_on_counts[3] >= 1),
+                timeout_s=1.0,
+            ),
+            f"sequence did not reach COMPLETE+coil3-fired; "
+            f"state={self.seq.state}, coil3_count={self.hw.coil_on_counts[3]}",
         )
 
     # -- each termination path must land us in READY -----------------------
@@ -291,6 +303,49 @@ class GateBounceRegressionTests(unittest.TestCase):
 
         # The new run must not have been affected.
         self.assertNotIn(1, self.seq._current_run.seen_leading)
+
+    def test_gate_transit_is_positive_after_beam_break_then_restore(self) -> None:
+        """Polarity regression (2026-04-16).
+
+        On the real rig the gates are idle-LOW: beam-break is a rising edge
+        and beam-restore is a falling edge. A past version of the code
+        registered the leading handler on 'falling' and trailing on 'rising',
+        which produced negative transit times once the new gate sensors were
+        installed and lost gate_N_transit_velocity_ms for every run.
+
+        This test asserts that the full cascade — driven through the mock's
+        beam-break/beam-restore simulation — yields t_gate_N_off > t_gate_N_on
+        for every gate. If someone flips the mapping in either the sequencer
+        or the mock without flipping the other, this test breaks.
+        """
+        self.assertTrue(self.seq.arm())
+        self.assertTrue(self.seq.fire())
+
+        # Wait for every gate's trailing edge to land.  State reaches
+        # COMPLETE as soon as _all_expected_gates_done() returns true,
+        # which can happen before gate 3 fires (since its `_on` timestamp
+        # is still None at that moment and the method doesn't wait for
+        # unpopulated gates) — so checking `state == COMPLETE` isn't
+        # enough to guarantee gate 3's timestamps are populated.
+        def _all_trailing_populated():
+            ts = self.seq._current_run.timestamps
+            return all(ts.get(f"t_gate_{g}_off") is not None for g in (1, 2, 3))
+        self.assertTrue(
+            _wait_until(_all_trailing_populated, timeout_s=1.0),
+            "not all gate trailing edges fired within timeout",
+        )
+
+        ts = self.seq._current_run.timestamps
+        for g in (1, 2, 3):
+            on = ts.get(f"t_gate_{g}_on")
+            off = ts.get(f"t_gate_{g}_off")
+            self.assertIsNotNone(on, f"gate {g} leading edge not captured")
+            self.assertIsNotNone(off, f"gate {g} trailing edge not captured")
+            self.assertGreater(
+                off, on,
+                f"gate {g} transit is non-positive "
+                f"(on={on}, off={off}) — polarity mapping is inverted",
+            )
 
     def test_fresh_run_data_after_rearm_has_empty_dedup_sets(self) -> None:
         """The whole point of per-RunData state: reset is automatic."""

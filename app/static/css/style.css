@@ -84,6 +84,8 @@ body {
 .btn-save  { background: var(--green);  color: #000; }
 .btn-clear { background: var(--fg-dim); color: #000; }
 .btn-seq   { background: var(--blue);   color: #fff; }
+.btn-manual-coil { background: var(--red);    color: #fff; }
+.btn-manual-gate { background: var(--yellow); color: #000; }
 
 /* ── Touchscreen layout ─────────────────────────────────────────────── */
 .ts-layout {
@@ -175,6 +177,35 @@ body {
   font-size: 0.75rem;
   color: var(--fg-dim);
   padding: 6px 0;
+}
+
+/* ── Manual page ────────────────────────────────────────────────────── */
+.manual-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.manual-actions h2 {
+  font-size: 0.9rem;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 6px;
+}
+.manual-btn-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.manual-btn-row .btn {
+  min-height: 64px;
+}
+.manual-note {
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+  line-height: 1.4;
+  padding-top: 4px;
 }
 
 /* ── Configuration layout ───────────────────────────────────────────── */

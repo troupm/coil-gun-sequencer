@@ -1,11 +1,18 @@
-# Velocity Optimization History
+# Velocity Optimization History — Baseline 0
 
-Persistent log of `/optimize-coil-gun-velocity` skill invocations tracking overall tuning progress.
+Persistent log of `/optimize-coil-gun-velocity` skill invocations tracking
+overall tuning progress.
+
+**Reset 2026-04-29:** prior history archived to
+`./archive/velocity_optimization_history_pre-baseline-0.md` and prior
+per-session reports to `./archive/analysis_*.md`. The pre-reset history
+spans 2026-04-11 → 2026-04-29 across multiple coil swaps, regime changes
+(pull → push-push → push-push-push), gate-polarity corrections, and a
+suspected projectile-length data-entry anomaly in the final session.
+Treat any analysis below this line as starting from a clean slate — do
+not anchor recommendations on archived runs without re-reading the
+archive intentionally.
 
 | Date | Sequences | Runs | Best Muzzle v | Key Finding | Trend |
 |------|-----------|------|---------------|-------------|-------|
-| 2026-04-11 | 1 | 5 | 6.877 m/s | G1→C2 delay and Coil 1 pulse strongly correlated with G1→G2 flight velocity; config changes so far degraded muzzle velocity vs baseline. Priority: isolate parameter effects. | Baseline |
-| 2026-04-11 | 1 | 7 | 6.877 m/s (G2→G3) / 7.029 m/s (G1→G2) | Muzzle v and mid-barrel v optimized by **opposite** configs (shorter pulses help G1→G2 but hurt muzzle). Isolated C2 pulse changes had small, noisy effects — delay/C1 pulse are the dominant levers. Stage 2→3 timing completely untested. | Plateauing (muzzle best unchanged, but key trade-off identified) |
-| 2026-04-12 | 5 | 56 | 6.097 m/s (G1→G2 only; coil 3 unattached) | Active sequence has 35 runs, all A/B point-comparisons dominated by noise (CV 33–41%, stdev 1.25 m/s on mean 3.84). `gate_1_coil_2_delay_us` sweet spot confirmed near 100 µs; every `coil_1_pulse` A/B says shorter is better but hasn't been tested below 1090 µs. **Priority 1: establish repeatability (≥3 runs/config) before further tuning.** | Regressing (G1→G2 peak 7.029 → 6.097 m/s vs previous skill run, within noise envelope) |
-| 2026-04-12 | 5 | 56 | 6.097 m/s (same dataset; flagged as high outlier) | Re-analysis with new top-quartile + best-top-5-median + outlier-filter signals. **Reverses prior recommendation on coil_2:** top-quartile profile (t=−1.835, strongest signal in dataset) and top-5-median (2510 µs) both contradict the single-best-run's 1010 µs — the 6.097 m/s peak was outlier-flagged. Revised optimum: `delay=100, c1=3090, c2=2510`. Coil 1 pulse shows no top-quartile signal — deprioritize sweeping it further. | Plateauing (no new data; revised interpretation only) |
-| 2026-04-12 | 5 | 86 | 6.097 m/s (peak unchanged; new sequence peak 5.30 m/s) | New sequence `4a2490fd` (38 runs) **dropped CV 33% → 24%** — operator's repeatability work paid off. Tested coil_1 down to 500 µs and coil_2 down to 500/700 µs; **reverses prior coil_2 recommendation back to 1010 µs** (top-5 median agrees, top-quartile mean is now 1548). Hardware params (v_coil_ceiling=62, cap=1500, rail_source=62, projectile=7.4) introduced as a co-varying block — none in top quartile yet, can't isolate. **Priority 1: disentangle hardware-param block one-at-a-time** (cap+50% should mathematically dominate — if it doesn't, find out why). | Improving on repeatability, plateauing on peak |
+| _(awaiting first post-reset sequence)_ | | | | | Baseline 0 |

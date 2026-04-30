@@ -83,6 +83,11 @@ def compute_stats(run: RunData, cfg: dict) -> dict:
     proj_len_mm = cfg["projectile_length_mm"]
 
     # --- Gate transit times (trailing - leading = beam-break duration) ----
+    # Rows from before the 2026-04-16 polarity fix have off < on (negative
+    # transit); magnitude is still the real beam-break duration. Use abs()
+    # for the velocity computation so those rows salvage-decode cleanly,
+    # but keep the signed `_us` field so an operator/analyst can still see
+    # the inversion. A lower bound filters out sub-10-µs noise/glitches.
     for g in (1, 2, 3):
         on = ts.get(f"t_gate_{g}_on")
         off = ts.get(f"t_gate_{g}_off")
@@ -90,9 +95,9 @@ def compute_stats(run: RunData, cfg: dict) -> dict:
             transit_ns = off - on
             transit_us = _ns_to_us(transit_ns)
             stats[f"gate_{g}_transit_us"] = round(transit_us, 2)
-            if transit_us > 0:
+            if abs(transit_us) >= 10.0:
                 # velocity = length / time  →  (mm/1000) / (µs/1e6) = mm*1000/µs
-                vel = proj_len_mm * 1_000.0 / transit_us
+                vel = proj_len_mm * 1_000.0 / abs(transit_us)
                 stats[f"gate_{g}_transit_velocity_ms"] = round(vel, 3)
 
     # --- Flight times (leading edge to leading edge between adjacent gates)
@@ -360,8 +365,12 @@ class Sequencer:
             def _on_trailing(gn=gate_num, g=gen):
                 self._on_gate_trailing(gn, g)
 
-            self.hw.register_gate_callback(gate_num, "falling", _on_leading)
-            self.hw.register_gate_callback(gate_num, "rising", _on_trailing)
+            # Gates are idle-LOW active-HIGH: beam-break drives the line HIGH
+            # (rising edge = leading), beam-restore lets it fall back to LOW
+            # (falling edge = trailing). See .claude/lessons-learned.md
+            # 2026-04-16 for how this was diagnosed.
+            self.hw.register_gate_callback(gate_num, "rising", _on_leading)
+            self.hw.register_gate_callback(gate_num, "falling", _on_trailing)
 
     def _on_gate_leading(self, gate_num: int, gen: int) -> None:
         """Handle beam-break leading edge (falling edge on GPIO).
@@ -491,3 +500,112 @@ class Sequencer:
         """Callback for the physical fire button."""
         log.info("External trigger pressed")
         self.fire()
+
+    # -- manual test controls ---------------------------------------------
+    # Used exclusively by the Manual page to exercise individual coils and
+    # gates outside of a normal firing sequence. Requires ARMED (or FIRING)
+    # state; transitions ARMED → FIRING on first action so the run can be
+    # saved/cleared through the existing lifecycle.
+
+    MANUAL_GATE_COIL_DELAY_US = 500.0
+
+    def manual_fire_coil(self, coil_num: int) -> str:
+        """Energise *coil_num* directly, using its configured pulse duration.
+
+        Does not wait for gate events. Intended for bench-testing that the
+        coil driver fires correctly. Valid while ARMED / FIRING / COMPLETE —
+        the operator can chain multiple manual actions in the same run;
+        READY rejects because the run hasn't been set up yet.
+
+        Returns:
+            "ok"          – coil was fired
+            "bad_coil"    – invalid coil number
+            "wrong_state" – sequencer not armed
+        """
+        if coil_num not in (1, 2, 3):
+            return "bad_coil"
+        with self._lock:
+            if self._state == State.READY:
+                log.warning(
+                    f"Cannot manual-fire coil {coil_num}: state is {self._state}"
+                )
+                return "wrong_state"
+            if self._state != State.FIRING:
+                self._state = State.FIRING
+            run = self._current_run
+            if run is None:
+                return "wrong_state"
+            pulse_us = self._config[f"coil_{coil_num}_pulse_duration_us"]
+            if run.timestamps.get("t_coil_0") is None:
+                run.record("t_coil_0")
+
+        self.hw.set_coil(coil_num, True)
+        run.record(f"t_coil_{coil_num}_on")
+        log.info(f"MANUAL FIRE – coil {coil_num} energised")
+        self._publish()
+
+        threading.Thread(
+            target=self._coil_pulse_thread,
+            args=(coil_num, pulse_us),
+            daemon=True,
+        ).start()
+        return "ok"
+
+    def manual_trigger_gate(self, gate_num: int) -> str:
+        """Simulate a gate-1/2/3 leading edge by hand.
+
+        Records ``t_gate_N_on`` and, for gate 1 or 2, schedules the mapped
+        downstream coil after a fixed ``MANUAL_GATE_COIL_DELAY_US`` (500 µs)
+        — overriding the configured gate→coil delay so the manual path is
+        predictable regardless of live config. No trailing-edge timestamp
+        is recorded: there's no real beam to restore, and synthesising a
+        ``t_gate_N_off`` would pollute transit-velocity analysis.
+
+        Returns:
+            "ok"            – gate event was recorded (and downstream coil scheduled)
+            "bad_gate"      – invalid gate number
+            "wrong_state"   – sequencer not armed
+            "already_fired" – this gate's leading edge was already recorded this run
+        """
+        if gate_num not in (1, 2, 3):
+            return "bad_gate"
+        with self._lock:
+            if self._state == State.READY:
+                log.warning(
+                    f"Cannot manual-trigger gate {gate_num}: state is {self._state}"
+                )
+                return "wrong_state"
+            if self._state != State.FIRING:
+                self._state = State.FIRING
+            run = self._current_run
+            if run is None:
+                return "wrong_state"
+            if gate_num in run.seen_leading:
+                log.info(
+                    f"Manual gate {gate_num} trigger ignored (already fired this run)"
+                )
+                return "already_fired"
+            run.seen_leading.add(gate_num)
+            t = run.record(f"t_gate_{gate_num}_on")
+
+            next_coil = {1: 2, 2: 3}.get(gate_num)
+            pulse_us: Optional[float] = None
+            if next_coil is not None:
+                pulse_us = self._config[f"coil_{next_coil}_pulse_duration_us"]
+
+        log.info(
+            f"MANUAL GATE {gate_num} trigger @ {t}"
+            + (f" → coil {next_coil} in {self.MANUAL_GATE_COIL_DELAY_US} µs"
+               if next_coil else "")
+        )
+        self._publish()
+
+        if next_coil is None:
+            return "ok"
+
+        threading.Thread(
+            target=self._delayed_coil_fire,
+            args=(next_coil, t, self.MANUAL_GATE_COIL_DELAY_US, pulse_us),
+            daemon=True,
+        ).start()
+        return "ok"

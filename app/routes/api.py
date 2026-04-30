@@ -8,7 +8,7 @@ from collections import defaultdict
 from flask import Blueprint, jsonify, request
 from sqlalchemy import func
 
-from app.models import db, ConfigSnapshot, EventLog
+from app.models import db, ConfigSnapshot, EventLog, SequenceNote
 
 log = logging.getLogger(__name__)
 
@@ -50,15 +50,14 @@ def fire():
     return jsonify({"status": "firing"})
 
 
-@api_bp.route("/save", methods=["POST"])
-def save_run():
-    """End the current run, persist to DB, return to READY."""
-    seq = _seq()
-    run_data = seq.save_run()
-    if run_data is None:
-        return jsonify({"status": "nothing_to_save"})
+def _persist_run(run_data: dict) -> EventLog:
+    """Write a sequencer run_data dict to event_logs and broadcast run_saved.
 
-    # Persist event log
+    Single source of truth for "the active run was claimed from the
+    sequencer; now make it durable". Used by both `/save` and
+    `/sequence/new` — the latter previously dropped the in-flight run on
+    the floor when an operator started a new sequence mid-run.
+    """
     ev = EventLog(
         run_sequence_id=run_data["run_sequence_id"],
         run_number=run_data["run_number"],
@@ -78,7 +77,17 @@ def save_run():
         "event_log_id": ev.id,
         "stats": run_data["stats"],
     })
+    return ev
 
+
+@api_bp.route("/save", methods=["POST"])
+def save_run():
+    """End the current run, persist to DB, return to READY."""
+    seq = _seq()
+    run_data = seq.save_run()
+    if run_data is None:
+        return jsonify({"status": "nothing_to_save"})
+    ev = _persist_run(run_data)
     return jsonify({"status": "saved", "event_log_id": ev.id, "stats": run_data["stats"]})
 
 
@@ -87,6 +96,34 @@ def clear_run():
     """Abort current run without saving."""
     _seq().clear_run()
     return jsonify({"status": "cleared"})
+
+
+# ── Manual test controls (Manual page) ──────────────────────────────────
+
+@api_bp.route("/manual/coil/<int:coil_num>/fire", methods=["POST"])
+def manual_fire_coil(coil_num):
+    """Directly energise a coil for bench testing. Requires ARMED state."""
+    result = _seq().manual_fire_coil(coil_num)
+    if result == "ok":
+        return jsonify({"status": "fired", "coil": coil_num})
+    if result == "bad_coil":
+        return jsonify({"error": "coil_num must be 1, 2, or 3"}), 400
+    return jsonify({"error": "Cannot manual-fire in current state"}), 409
+
+
+@api_bp.route("/manual/gate/<int:gate_num>/trigger", methods=["POST"])
+def manual_trigger_gate(gate_num):
+    """Simulate a gate leading edge for bench testing. Requires ARMED state."""
+    result = _seq().manual_trigger_gate(gate_num)
+    if result == "ok":
+        return jsonify({"status": "triggered", "gate": gate_num})
+    if result == "bad_gate":
+        return jsonify({"error": "gate_num must be 1, 2, or 3"}), 400
+    if result == "already_fired":
+        return jsonify({
+            "error": f"Gate {gate_num} leading edge already recorded this run",
+        }), 409
+    return jsonify({"error": "Cannot manual-trigger in current state"}), 409
 
 
 # ── Configuration ───────────────────────────────────────────────────────
@@ -153,9 +190,13 @@ def update_config():
 @api_bp.route("/sequence/new", methods=["POST"])
 def new_sequence():
     seq = _seq()
-    # Save current run if active
+    # If a run is in flight, persist it before rotating the sequence id —
+    # otherwise the active run is lost (regression: 2026-04-30, runs were
+    # silently dropped when the operator hit "NEW SEQUENCE" mid-run).
     if seq.state.value != "ready":
-        seq.save_run()
+        run_data = seq.save_run()
+        if run_data is not None:
+            _persist_run(run_data)
     new_id = seq.new_run_sequence()
     _pub().emit("sequence_changed", {"run_sequence_id": new_id})
     return jsonify({"run_sequence_id": new_id})
@@ -167,6 +208,37 @@ def get_sequence():
         "run_sequence_id": _seq().run_sequence_id,
         "run_number": _seq().run_number,
     })
+
+
+# ── Sequence notes ─────────────────────────────────────────────────────
+
+@api_bp.route("/sequence/notes", methods=["GET"])
+def get_sequence_notes():
+    """Return the note for the current sequence (or empty string)."""
+    seq_id = _seq().run_sequence_id
+    note = SequenceNote.query.filter_by(run_sequence_id=seq_id).first()
+    return jsonify({
+        "run_sequence_id": seq_id,
+        "notes": note.notes if note else "",
+    })
+
+
+@api_bp.route("/sequence/notes", methods=["PUT"])
+def update_sequence_notes():
+    """Create or update the note for the current sequence."""
+    seq_id = _seq().run_sequence_id
+    payload = request.get_json(force=True)
+    text_val = str(payload.get("notes", "")).strip()
+
+    note = SequenceNote.query.filter_by(run_sequence_id=seq_id).first()
+    if note:
+        note.notes = text_val
+    else:
+        note = SequenceNote(run_sequence_id=seq_id, notes=text_val)
+        db.session.add(note)
+    db.session.commit()
+    log.info("Updated sequence notes for %s", seq_id[:8])
+    return jsonify(note.to_dict())
 
 
 # ── History ─────────────────────────────────────────────────────────────
@@ -223,15 +295,19 @@ def _compute_run_velocities(ev, cfg):
     stats = {}
     proj_len = cfg.projectile_length_mm
 
+    # See app/sequencer.py:compute_stats for the abs()/10-µs rationale —
+    # pre-2026-04-16 rows have off<on (gate polarity was inverted) and
+    # magnitude is the real transit duration, so we salvage them via
+    # abs() while keeping the signed `_us` field visible to the UI.
     for g in (1, 2, 3):
         on = getattr(ev, f"t_gate_{g}_on")
         off = getattr(ev, f"t_gate_{g}_off")
         if on is not None and off is not None:
             transit_us = (off - on) / 1_000.0
             stats[f"gate_{g}_transit_us"] = round(transit_us, 2)
-            if transit_us > 0:
+            if abs(transit_us) >= 10.0:
                 stats[f"gate_{g}_transit_velocity_ms"] = round(
-                    proj_len * 1_000.0 / transit_us, 3
+                    proj_len * 1_000.0 / abs(transit_us), 3
                 )
 
     pairs = [
@@ -266,7 +342,7 @@ def _trend(cur, prev):
 
 @api_bp.route("/sequences")
 def list_sequences():
-    """All unique sequences with run count and time range."""
+    """All unique sequences with run count, time range, and notes."""
     rows = (
         db.session.query(
             EventLog.run_sequence_id,
@@ -278,12 +354,22 @@ def list_sequences():
         .order_by(func.max(EventLog.created_at).desc())
         .all()
     )
+    # Pre-load all sequence notes in one query
+    seq_ids = [r.run_sequence_id for r in rows]
+    notes_map = {}
+    if seq_ids:
+        for sn in SequenceNote.query.filter(
+            SequenceNote.run_sequence_id.in_(seq_ids)
+        ).all():
+            notes_map[sn.run_sequence_id] = sn.notes
+
     return jsonify([
         {
             "run_sequence_id": r.run_sequence_id,
             "run_count": r.run_count,
             "first_run": r.first_run.isoformat() if r.first_run else None,
             "last_run": r.last_run.isoformat() if r.last_run else None,
+            "notes": notes_map.get(r.run_sequence_id, ""),
         }
         for r in rows
     ])
@@ -383,10 +469,11 @@ def analysis_runs():
 def analysis_overview():
     """Per-sequence average velocities for the cross-sequence trend chart.
 
-    Returns sequences ordered by first_run ASC (chronological) so the chart
-    reads left-to-right in time.
+    Returns the most recent five sequences ordered by first_run ASC
+    (chronological) so the chart reads left-to-right in time. Older
+    sequences are omitted so calibration / yardstick / wrong-config
+    sessions don't dominate the y-axis indefinitely.
     """
-    # Get all sequences
     seq_rows = (
         db.session.query(
             EventLog.run_sequence_id,
@@ -394,9 +481,12 @@ def analysis_overview():
             func.min(EventLog.created_at).label("first_run"),
         )
         .group_by(EventLog.run_sequence_id)
-        .order_by(func.min(EventLog.created_at).asc())
+        .order_by(func.min(EventLog.created_at).desc())
+        .limit(5)
         .all()
     )
+    # We pulled DESC to apply LIMIT; flip back to chronological for the chart.
+    seq_rows = list(reversed(seq_rows))
 
     if not seq_rows:
         return jsonify([])

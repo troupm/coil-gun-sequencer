@@ -7,7 +7,7 @@ from flask import Flask
 from flask_socketio import SocketIO, emit
 
 from app.config import FlaskConfig, DEFAULTS
-from app.models import db, ConfigSnapshot
+from app.models import db, ConfigSnapshot, SequenceNote
 from app.hardware import create_hardware
 from app.sequencer import Sequencer, StatePublisher
 
@@ -162,6 +162,21 @@ def _migrate_config_snapshots_schema() -> None:
             "coil_3_inductance_uh": 1000.0,
         }
         for col, default in _coil_rating_cols.items():
+            if col not in existing_cols:
+                conn.execute(text(
+                    f"ALTER TABLE config_snapshots "
+                    f"ADD COLUMN {col} REAL NOT NULL DEFAULT {default}"
+                ))
+                log.info("Added column config_snapshots.%s", col)
+
+        # --- per-coil capacitor banks & projectile start offset ---
+        _new_metadata_cols = {
+            "coil_1_capacitor_uf": 4000.0,
+            "coil_2_capacitor_uf": 4000.0,
+            "coil_3_capacitor_uf": 4000.0,
+            "projectile_start_offset_mm": 2.0,
+        }
+        for col, default in _new_metadata_cols.items():
             if col not in existing_cols:
                 conn.execute(text(
                     f"ALTER TABLE config_snapshots "

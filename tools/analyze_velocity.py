@@ -36,6 +36,10 @@ CONFIG_PARAMS = [
     "rail_source_active",
     "coil_1_brake_resistor_ohms",
     "coil_2_brake_resistor_ohms",
+    "coil_1_capacitor_uf",
+    "coil_2_capacitor_uf",
+    "coil_3_capacitor_uf",
+    "projectile_start_offset_mm",
     "coil_1_resistance_ohms",
     "coil_1_inductance_uh",
     "coil_2_resistance_ohms",
@@ -77,8 +81,74 @@ def get_sequences(conn, limit=5):
     """, (limit,)).fetchall()
 
 
+def get_sequence_notes(conn, sequence_ids):
+    """Return a dict mapping run_sequence_id to notes text."""
+    if not sequence_ids:
+        return {}
+    placeholders = ",".join("?" for _ in sequence_ids)
+    rows = conn.execute(
+        f"SELECT run_sequence_id, notes FROM sequence_notes "
+        f"WHERE run_sequence_id IN ({placeholders})",
+        sequence_ids,
+    ).fetchall()
+    return {r["run_sequence_id"]: r["notes"] for r in rows}
+
+
+def get_oscilloscope_traces(sequence_ids):
+    """Scan data/sequence_traces/ for JPG images matching sequence IDs.
+
+    Matching is by 8-char prefix: a file named `a08101f0_coil2.jpg` matches
+    sequence `a08101f0-...`. Returns a dict of sequence_id -> list of
+    relative file paths.
+    """
+    traces_dir = os.path.join(os.path.dirname(__file__), "..", "data", "sequence_traces")
+    if not os.path.isdir(traces_dir):
+        return {}
+
+    # Build prefix lookup
+    prefix_map = {}
+    for sid in sequence_ids:
+        prefix_map[sid[:8]] = sid
+
+    result = {}
+    for fname in sorted(os.listdir(traces_dir)):
+        if not fname.lower().endswith((".jpg", ".jpeg", ".png")):
+            continue
+        # Match by 8-char prefix of filename
+        file_prefix = fname[:8]
+        full_sid = prefix_map.get(file_prefix)
+        if full_sid:
+            result.setdefault(full_sid, []).append(
+                os.path.join("data", "sequence_traces", fname)
+            )
+    return result
+
+
+def _get_config_columns(conn):
+    """Return the set of column names actually present in config_snapshots."""
+    cursor = conn.execute("PRAGMA table_info(config_snapshots)")
+    return {row[1] for row in cursor.fetchall()}
+
+
 def get_runs_with_config(conn, sequence_ids):
-    """Return all runs for the given sequences, joined with their config."""
+    """Return all runs for the given sequences, joined with their config.
+
+    Handles databases that haven't been migrated yet: columns not present
+    in the table are omitted from the SELECT and will show up as missing
+    keys in the returned rows (downstream code already handles None/missing
+    via `row[p] is not None` guards).
+    """
+    existing_cols = _get_config_columns(conn)
+
+    # Build the SELECT list dynamically so we don't fail on un-migrated DBs.
+    config_select = []
+    for p in CONFIG_PARAMS:
+        if p in existing_cols:
+            config_select.append(f"c.{p}")
+        else:
+            config_select.append(f"NULL AS {p}")
+    config_clause = ",\n            ".join(config_select)
+
     placeholders = ",".join("?" for _ in sequence_ids)
     return conn.execute(f"""
         SELECT
@@ -89,27 +159,7 @@ def get_runs_with_config(conn, sequence_ids):
             e.t_gate_1_on,  e.t_gate_1_off,
             e.t_gate_2_on,  e.t_gate_2_off,
             e.t_gate_3_on,  e.t_gate_3_off,
-            c.projectile_length_mm,
-            c.projectile_mass_grams,
-            c.v_coil_floor,
-            c.v_coil_ceiling,
-            c.gate_1_coil_2_delay_us,
-            c.gate_2_coil_3_delay_us,
-            c.coil_1_pulse_duration_us,
-            c.coil_2_pulse_duration_us,
-            c.coil_3_pulse_duration_us,
-            c.gate_1_to_gate_2_distance_mm,
-            c.gate_2_to_gate_3_distance_mm,
-            c.capacitor_bank_size_uf,
-            c.rail_source_active,
-            c.coil_1_brake_resistor_ohms,
-            c.coil_2_brake_resistor_ohms,
-            c.coil_1_resistance_ohms,
-            c.coil_1_inductance_uh,
-            c.coil_2_resistance_ohms,
-            c.coil_2_inductance_uh,
-            c.coil_3_resistance_ohms,
-            c.coil_3_inductance_uh
+            {config_clause}
         FROM event_logs e
         LEFT JOIN config_snapshots c ON e.config_snapshot_id = c.id
         WHERE e.run_sequence_id IN ({placeholders})
@@ -443,7 +493,17 @@ def analyze(db_path, seq_limit=5):
 
     seq_ids = [s["run_sequence_id"] for s in sequences]
     raw_runs = get_runs_with_config(conn, seq_ids)
+
+    # Fetch sequence notes (graceful if table doesn't exist yet)
+    try:
+        seq_notes = get_sequence_notes(conn, seq_ids)
+    except Exception:
+        seq_notes = {}
+
     conn.close()
+
+    # Scan for oscilloscope trace images
+    seq_traces = get_oscilloscope_traces(seq_ids)
 
     # ── Build enriched run records ───────────────────────────────────────
 
@@ -472,13 +532,18 @@ def analyze(db_path, seq_limit=5):
             vals = [r["velocities"][vm] for r in seq_runs if vm in r["velocities"]]
             if vals:
                 vel_aggs[vm] = agg(vals)
-        seq_summaries.append({
+        entry = {
             "run_sequence_id": sid,
             "run_count": seq["run_count"],
             "first_run": seq["first_run"],
             "last_run": seq["last_run"],
             "velocity_summary": vel_aggs,
-        })
+        }
+        if sid in seq_notes:
+            entry["notes"] = seq_notes[sid]
+        if sid in seq_traces:
+            entry["oscilloscope_traces"] = seq_traces[sid]
+        seq_summaries.append(entry)
 
     # ── Outlier filter: one pass per velocity metric ─────────────────────
     #     Asymmetric trailing-window filter. Low outliers (mechanical
