@@ -126,6 +126,26 @@ def manual_trigger_gate(gate_num):
     return jsonify({"error": "Cannot manual-trigger in current state"}), 409
 
 
+# ── Gate live state (pre-flight calibration) ────────────────────────────
+
+@api_bp.route("/gate_states")
+def get_gate_states():
+    """Return the current logical line state of each gate.
+
+    Polled by the Manual page at low rate to drive HIGH/LOW indicator
+    dots — used to verify sensor polarity before a run. Not on the
+    timing-critical edge path.
+    """
+    hw = _seq().hw
+    out = {}
+    for g in (1, 2, 3):
+        try:
+            out[str(g)] = hw.read_gate_state(g)
+        except Exception:
+            out[str(g)] = None
+    return jsonify(out)
+
+
 # ── Configuration ───────────────────────────────────────────────────────
 
 @api_bp.route("/config", methods=["GET"])

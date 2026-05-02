@@ -81,4 +81,41 @@
     const el = document.getElementById('run-info-text');
     if (el) el.textContent = 'Sequence: ' + seqShort + ' | Run: ' + (s.run_number || '--');
   });
+
+  // ── Gate line-state polling (pre-flight calibration) ────────────────
+  // Low-rate poll of /api/gate_states drives the HIGH/LOW indicator dots.
+  // Independent of the SocketIO state stream because gate-line state can
+  // change between runs (operator covering/uncovering beams to verify
+  // sensor polarity) without producing a state_update.
+
+  const GATE_POLL_MS = 250;
+  const gateCells = {
+    1: document.getElementById('gate-state-1'),
+    2: document.getElementById('gate-state-2'),
+    3: document.getElementById('gate-state-3'),
+  };
+
+  function setGateIndicator(n, level) {
+    const cell = gateCells[n];
+    if (!cell) return;
+    cell.classList.remove('high', 'low', 'unknown');
+    const lvlEl = cell.querySelector('.gate-state-level');
+    if (level === true)       { cell.classList.add('high');    if (lvlEl) lvlEl.textContent = 'HIGH'; }
+    else if (level === false) { cell.classList.add('low');     if (lvlEl) lvlEl.textContent = 'LOW';  }
+    else                      { cell.classList.add('unknown'); if (lvlEl) lvlEl.textContent = '--';   }
+  }
+
+  async function pollGateStates() {
+    try {
+      const r = await fetch('/api/gate_states', { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      for (const n of [1, 2, 3]) setGateIndicator(n, data[String(n)]);
+    } catch (e) {
+      for (const n of [1, 2, 3]) setGateIndicator(n, null);
+    }
+  }
+
+  pollGateStates();
+  setInterval(pollGateStates, GATE_POLL_MS);
 })();
