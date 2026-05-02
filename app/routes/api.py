@@ -50,15 +50,14 @@ def fire():
     return jsonify({"status": "firing"})
 
 
-@api_bp.route("/save", methods=["POST"])
-def save_run():
-    """End the current run, persist to DB, return to READY."""
-    seq = _seq()
-    run_data = seq.save_run()
-    if run_data is None:
-        return jsonify({"status": "nothing_to_save"})
+def _persist_run(run_data: dict) -> EventLog:
+    """Write a sequencer run_data dict to event_logs and broadcast run_saved.
 
-    # Persist event log
+    Single source of truth for "the active run was claimed from the
+    sequencer; now make it durable". Used by both `/save` and
+    `/sequence/new` — the latter previously dropped the in-flight run on
+    the floor when an operator started a new sequence mid-run.
+    """
     ev = EventLog(
         run_sequence_id=run_data["run_sequence_id"],
         run_number=run_data["run_number"],
@@ -78,7 +77,17 @@ def save_run():
         "event_log_id": ev.id,
         "stats": run_data["stats"],
     })
+    return ev
 
+
+@api_bp.route("/save", methods=["POST"])
+def save_run():
+    """End the current run, persist to DB, return to READY."""
+    seq = _seq()
+    run_data = seq.save_run()
+    if run_data is None:
+        return jsonify({"status": "nothing_to_save"})
+    ev = _persist_run(run_data)
     return jsonify({"status": "saved", "event_log_id": ev.id, "stats": run_data["stats"]})
 
 
@@ -201,9 +210,13 @@ def update_config():
 @api_bp.route("/sequence/new", methods=["POST"])
 def new_sequence():
     seq = _seq()
-    # Save current run if active
+    # If a run is in flight, persist it before rotating the sequence id —
+    # otherwise the active run is lost (regression: 2026-04-30, runs were
+    # silently dropped when the operator hit "NEW SEQUENCE" mid-run).
     if seq.state.value != "ready":
-        seq.save_run()
+        run_data = seq.save_run()
+        if run_data is not None:
+            _persist_run(run_data)
     new_id = seq.new_run_sequence()
     _pub().emit("sequence_changed", {"run_sequence_id": new_id})
     return jsonify({"run_sequence_id": new_id})

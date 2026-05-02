@@ -87,6 +87,13 @@ class SequencerHappyPathTests(unittest.TestCase):
         The mock hardware auto-simulates gate events when coils fire, so
         a single fire() call drives the full coil_1 → gate_1 → coil_2 →
         gate_2 → coil_3 → gate_3 pipeline without any test-side poking.
+
+        State reaches COMPLETE on gate 2's trailing edge, which lands
+        ~1.5 ms *before* coil 3 is scheduled to fire (gate_2 leading +
+        2000 µs delay). A state-only wait was racy under CPU load — this
+        helper now waits for state COMPLETE *and* the coil 3 pulse to
+        have started, so callers checking coil_on_counts won't trip on
+        an unfired-but-imminent coil 3.
         """
         self.assertEqual(self.seq.state, State.READY)
         self.assertTrue(self.seq.arm(), "arm() should succeed from READY")
@@ -95,8 +102,13 @@ class SequencerHappyPathTests(unittest.TestCase):
         self.assertTrue(self.seq.fire(), "fire() should succeed from ARMED")
         # fire() transitions ARMED → FIRING synchronously; gate cascade is async.
         self.assertTrue(
-            _wait_until(lambda: self.seq.state == State.COMPLETE, timeout_s=1.0),
-            f"sequence did not reach COMPLETE; stuck at {self.seq.state}",
+            _wait_until(
+                lambda: (self.seq.state == State.COMPLETE
+                         and self.hw.coil_on_counts[3] >= 1),
+                timeout_s=1.0,
+            ),
+            f"sequence did not reach COMPLETE+coil3-fired; "
+            f"state={self.seq.state}, coil3_count={self.hw.coil_on_counts[3]}",
         )
 
     # -- each termination path must land us in READY -----------------------

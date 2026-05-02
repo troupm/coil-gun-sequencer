@@ -26,7 +26,17 @@
       "Bash(python tools/analyze_velocity.py --limit 5)",
       "Bash(echo \"exit=$?\")",
       "Read(//tmp/**)",
-      "Bash(set -e)"
+      "Bash(set -e)",
+      "Bash(git fetch *)",
+      "Bash(git ls-tree *)",
+      "Bash(git hash-object *)",
+      "Bash(git status *)",
+      "Bash(git show *)",
+      "Bash(python3 -c ' *)",
+      "Bash(rm -f /tmp/remote_seq.db)",
+      "Bash(git cat-file *)",
+      "Bash(cygpath *)",
+      "Bash(python3 *)"
     ]
   }
 }

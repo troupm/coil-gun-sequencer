@@ -43,7 +43,7 @@ class HardwareInterface(ABC):
         """Register *callback* for a gate edge event.
 
         gate_num : 1, 2, or 3
-        edge     : "falling" (beam break / leading) or "rising" (beam restore / trailing)
+        edge     : "rising" (beam break / leading) or "falling" (beam restore / trailing)
         callback : zero-arg callable invoked from a background thread
         """
 
