@@ -134,6 +134,15 @@ class RealHardware(HardwareInterface):
             gate.when_deactivated = None
         self._gate_callbacks.clear()
 
+    def read_gate_state(self, gate_num: int) -> Optional[bool]:
+        gate = self._gates.get(gate_num)
+        if gate is None:
+            return None
+        # gpiozero DigitalInputDevice.value is 1 when "active". With
+        # pull_up=False the default active_state is True (HIGH=active),
+        # so .value directly reports the physical line level.
+        return bool(gate.value)
+
     # -- external trigger -------------------------------------------------
 
     def register_trigger_callback(self, callback: Callable[[], None]) -> None:

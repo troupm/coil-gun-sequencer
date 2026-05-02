@@ -51,6 +51,18 @@ class HardwareInterface(ABC):
     def unregister_gate_callbacks(self) -> None:
         """Remove all previously registered gate callbacks."""
 
+    @abstractmethod
+    def read_gate_state(self, gate_num: int) -> Optional[bool]:
+        """Return the current logical line state of *gate_num*.
+
+        True  = line HIGH at the GPIO pin
+        False = line LOW
+        None  = state unknown / hardware unavailable
+
+        Used by the Manual page for pre-flight calibration; sample rate is
+        whatever the UI polls at, not the timing-critical edge path.
+        """
+
     # -- external trigger -------------------------------------------------
 
     @abstractmethod

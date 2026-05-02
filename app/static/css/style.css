@@ -208,6 +208,60 @@ body {
   padding-top: 4px;
 }
 
+.gate-state-hint {
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 6px;
+}
+.gate-state-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+.gate-state-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 2px solid #333;
+  border-radius: 6px;
+  background: #111;
+  font-size: 0.85rem;
+  min-height: 44px;
+}
+.gate-state-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #333;
+  flex: 0 0 auto;
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.6);
+  transition: background-color 80ms linear, box-shadow 80ms linear;
+}
+.gate-state-cell.high .gate-state-dot {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+}
+.gate-state-cell.low  .gate-state-dot {
+  background: var(--blue);
+  box-shadow: 0 0 8px var(--blue);
+}
+.gate-state-cell.high { border-color: var(--green); }
+.gate-state-cell.low  { border-color: var(--blue);  }
+.gate-state-cell.unknown {
+  border-color: #444;
+  color: var(--fg-dim);
+}
+.gate-state-level {
+  color: var(--fg-dim);
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.gate-state-cell.high .gate-state-level { color: var(--green); }
+.gate-state-cell.low  .gate-state-level { color: var(--blue); }
+
 /* ── Configuration layout ───────────────────────────────────────────── */
 .cfg-layout {
   display: grid;
