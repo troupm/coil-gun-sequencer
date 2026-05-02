@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Manual{% endblock %}
+{% block nav_manual %}active{% endblock %}
+
+{% block content %}
+<div class="ts-layout">
+
+  <!-- Left column: lifecycle controls -->
+  <div class="ts-controls">
+    <div class="state-indicator" id="state-indicator">
+      <span class="state-label" id="state-label">--</span>
+    </div>
+
+    <button class="btn btn-arm" id="btn-arm" disabled>ARM</button>
+
+    <div class="btn-row">
+      <button class="btn btn-save" id="btn-save" disabled>SAVE</button>
+      <button class="btn btn-clear" id="btn-clear" disabled>CLEAR</button>
+    </div>
+
+    <p class="manual-note">
+      Manual testing only — not a normal firing-sequence run.
+      Gate triggers fire the mapped coil after a fixed 500 µs delay.
+    </p>
+  </div>
+
+  <!-- Right column: manual action buttons -->
+  <div class="manual-actions">
+    <h2>Coil Fire</h2>
+    <div class="manual-btn-row">
+      <button class="btn btn-manual-coil" id="btn-coil-2" data-coil="2" disabled>Coil 2 Fire</button>
+      <button class="btn btn-manual-coil" id="btn-coil-3" data-coil="3" disabled>Coil 3 Fire</button>
+    </div>
+
+    <h2>Gate Line State <span class="gate-state-hint">(pre-flight)</span></h2>
+    <div class="gate-state-row">
+      <div class="gate-state-cell" id="gate-state-1">
+        <span class="gate-state-dot"></span>
+        <span class="gate-state-label">Gate 1 <span class="gate-state-level">--</span></span>
+      </div>
+      <div class="gate-state-cell" id="gate-state-2">
+        <span class="gate-state-dot"></span>
+        <span class="gate-state-label">Gate 2 <span class="gate-state-level">--</span></span>
+      </div>
+      <div class="gate-state-cell" id="gate-state-3">
+        <span class="gate-state-dot"></span>
+        <span class="gate-state-label">Gate 3 <span class="gate-state-level">--</span></span>
+      </div>
+    </div>
+
+    <h2>Gate Trigger</h2>
+    <div class="manual-btn-row">
+      <button class="btn btn-manual-gate" id="btn-gate-1" data-gate="1" disabled>Gate 1 Trigger</button>
+      <button class="btn btn-manual-gate" id="btn-gate-2" data-gate="2" disabled>Gate 2 Trigger</button>
+      <button class="btn btn-manual-gate" id="btn-gate-3" data-gate="3" disabled>Gate 3 Trigger</button>
+    </div>
+
+    <div class="run-info">
+      <span id="run-info-text">Sequence: -- | Run: --</span>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/manual.js') }}"></script>
+{% endblock %}

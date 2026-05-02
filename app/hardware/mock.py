@@ -24,6 +24,10 @@ class MockHardware(HardwareInterface):
 
     def __init__(self) -> None:
         self._coil_states: Dict[int, bool] = {1: False, 2: False, 3: False}
+        # Idle-LOW gate lines (matching the real-hw convention). Toggled
+        # HIGH for the duration of a simulated beam-break so the Manual
+        # page's pre-flight indicators have something to display in dev.
+        self._gate_line_states: Dict[int, bool] = {1: False, 2: False, 3: False}
         self._gate_callbacks: Dict[Tuple[int, str], List[Callable]] = {}
         self._trigger_callback: Optional[Callable] = None
         self._sim_timers: List[threading.Timer] = []
@@ -64,6 +68,7 @@ class MockHardware(HardwareInterface):
         # the sequencer's edge-to-handler wiring) exercise the real mapping.
         def _trigger_leading():
             log.info(f"[MockHW] Simulated gate {gate_num} LEADING edge (beam break)")
+            self._gate_line_states[gate_num] = True
             cbs = self._gate_callbacks.get((gate_num, "rising"), [])
             for cb in cbs:
                 cb()
@@ -76,6 +81,7 @@ class MockHardware(HardwareInterface):
 
         def _trigger_trailing():
             log.info(f"[MockHW] Simulated gate {gate_num} TRAILING edge (beam restore)")
+            self._gate_line_states[gate_num] = False
             cbs = self._gate_callbacks.get((gate_num, "falling"), [])
             for cb in cbs:
                 cb()
@@ -101,6 +107,9 @@ class MockHardware(HardwareInterface):
     def unregister_gate_callbacks(self) -> None:
         self._gate_callbacks.clear()
         log.debug("[MockHW] All gate callbacks removed")
+
+    def read_gate_state(self, gate_num: int) -> Optional[bool]:
+        return self._gate_line_states.get(gate_num)
 
     # -- external trigger -------------------------------------------------
 

@@ -37,6 +37,17 @@
     'gate_2_to_gate_3_velocity_ms': 'Muzzle (G2\u2192G3)',
   };
 
+  // Transit-derived velocities are precise but inflated relative to flight-
+  // derived ones (different measurement method). Plot them on separate Y
+  // axes so the flight trend isn't squashed against the transit scale.
+  const SERIES_AXIS = {
+    'gate_1_transit_velocity_ms':   'yTransit',
+    'gate_2_transit_velocity_ms':   'yTransit',
+    'gate_3_transit_velocity_ms':   'yTransit',
+    'gate_1_to_gate_2_velocity_ms': 'yFlight',
+    'gate_2_to_gate_3_velocity_ms': 'yFlight',
+  };
+
   const TREND_HTML = {
     improving: '<span class="trend-up" title="Improving">\u25B2</span>',
     declining: '<span class="trend-down" title="Declining">\u25BC</span>',
@@ -254,26 +265,86 @@
 
   // ── Run-over-run chart ─────────────────────────────────────────────────
 
+  // Outlier detection for the trend chart. Two rules, applied in order:
+  //   (a) Intra-run absurdity: a velocity in a run is flagged if it is
+  //       > 3x EVERY other velocity in the same run (i.e. dominates all
+  //       peers). Catches calibration / yardstick rows where one gate's
+  //       reading is orders of magnitude off (e.g. G3 transit reading
+  //       1635 m/s when every other reading is < 60 m/s). Deliberately
+  //       does NOT flag the systematic ~4x gap between gate-transit and
+  //       gate-to-gate-flight velocities, which is a known measurement-
+  //       method artefact, not bad data.
+  //   (b) Per-series 3-sigma fence (only when n>5 valid values remain after
+  //       rule (a)): drops single-shot anomalies that aren't intra-run
+  //       inconsistent but are far from the sequence's typical velocity for
+  //       that series.
+  // Rule (a) runs first so its hits don't pollute the mean/sigma of rule (b).
+  function detectChartOutliers(runs, velKeys) {
+    const flagged = new Set();  // 'runId:vk' tuples
+    const key = (r, vk) => r.id + ':' + vk;
+
+    // (a) intra-run dominance check
+    for (const r of runs) {
+      const vals = velKeys
+        .map(vk => ({ vk, v: r[vk] }))
+        .filter(x => x.v != null && x.v > 0);
+      if (vals.length < 2) continue;
+      for (const a of vals) {
+        const peers = vals.filter(p => p.vk !== a.vk);
+        if (peers.length === 0) continue;
+        const peerMax = Math.max(...peers.map(p => p.v));
+        if (a.v > 3 * peerMax) flagged.add(key(r, a.vk));
+      }
+    }
+
+    // (b) per-series 3-sigma, post (a)
+    for (const vk of velKeys) {
+      const vals = runs
+        .filter(r => !flagged.has(key(r, vk)))
+        .map(r => r[vk])
+        .filter(v => v != null);
+      if (vals.length <= 5) continue;
+      const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+      const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+      const sigma = Math.sqrt(variance);
+      if (sigma === 0) continue;
+      for (const r of runs) {
+        const v = r[vk];
+        if (v != null && Math.abs(v - mean) > 3 * sigma) {
+          flagged.add(key(r, vk));
+        }
+      }
+    }
+    return flagged;
+  }
+
   function updateRunChart(runs) {
     const chronological = [...runs].reverse();
     const labels = chronological.map(r => '#' + r.run_number);
+    const outliers = detectChartOutliers(chronological, VEL_KEYS);
 
     const datasets = VEL_KEYS.map(vk => ({
       label: SERIES_LABELS[vk],
-      data: chronological.map(r => r[vk] != null ? r[vk] : null),
+      data: chronological.map(r => {
+        const v = r[vk];
+        if (v == null) return null;
+        if (outliers.has(r.id + ':' + vk)) return null;
+        return v;
+      }),
       borderColor: SERIES_COLORS[vk],
       backgroundColor: SERIES_COLORS[vk] + '33',
       borderWidth: 2,
       pointRadius: 3,
       tension: 0.25,
       spanGaps: true,
+      yAxisID: SERIES_AXIS[vk],
     }));
 
     if (runChart) runChart.destroy();
     runChart = new Chart(document.getElementById('chart-runs'), {
       type: 'line',
       data: { labels, datasets },
-      options: chartOpts('Run #', 'Velocity (m/s)'),
+      options: chartOpts('Run #', 'Transit Velocity (m/s)', 'Flight Velocity (m/s)'),
     });
   }
 
@@ -299,19 +370,20 @@
       pointRadius: 4,
       tension: 0.25,
       spanGaps: true,
+      yAxisID: SERIES_AXIS[vk],
     }));
 
     if (seqChart) seqChart.destroy();
     seqChart = new Chart(document.getElementById('chart-sequences'), {
       type: 'line',
       data: { labels, datasets },
-      options: chartOpts('Sequence', 'Avg Velocity (m/s)'),
+      options: chartOpts('Sequence', 'Avg Transit Velocity (m/s)', 'Avg Flight Velocity (m/s)'),
     });
   }
 
   // ── Shared chart options ───────────────────────────────────────────────
 
-  function chartOpts(xLabel, yLabel) {
+  function chartOpts(xLabel, transitYLabel, flightYLabel) {
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -334,10 +406,20 @@
           ticks: { color: '#8888aa', font: { size: 10 } },
           grid: { color: 'rgba(255,255,255,0.05)' },
         },
-        y: {
-          title: { display: true, text: yLabel, color: '#8888aa' },
+        yTransit: {
+          type: 'linear',
+          position: 'left',
+          title: { display: true, text: transitYLabel, color: '#8888aa' },
           ticks: { color: '#8888aa' },
           grid: { color: 'rgba(255,255,255,0.08)' },
+          beginAtZero: false,
+        },
+        yFlight: {
+          type: 'linear',
+          position: 'right',
+          title: { display: true, text: flightYLabel, color: '#8888aa' },
+          ticks: { color: '#8888aa' },
+          grid: { drawOnChartArea: false },
           beginAtZero: false,
         },
       },
